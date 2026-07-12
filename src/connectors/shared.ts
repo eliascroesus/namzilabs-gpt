@@ -1,0 +1,108 @@
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+
+import { constantTimeEqual, sha256 } from "@/lib/crypto";
+import { AppError } from "@/lib/errors";
+import type { ConnectorContext, IncomingWebhook, NormalizedRecord } from "@/connectors/types";
+
+export function credential(context: ConnectorContext, key: string): string {
+  const value = context.credentials[key];
+  if (!value) throw new AppError("credential_missing", `Missing provider credential: ${key}.`, 401);
+  return value;
+}
+
+export function randomSecret(bytes = 32): string {
+  return randomBytes(bytes).toString("base64url");
+}
+
+export function verifyHmac(
+  rawBody: string,
+  supplied: string | null,
+  secret: string,
+  algorithm: "sha256" | "sha1" = "sha256",
+  prefix = "",
+): boolean {
+  if (!supplied) return false;
+  const expected = `${prefix}${createHmac(algorithm, secret).update(rawBody).digest("hex")}`;
+  return constantTimeEqual(expected, supplied);
+}
+
+export function webhookJson(webhook: IncomingWebhook): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(webhook.rawBody);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new AppError("invalid_webhook_json", "Webhook bodies must contain a JSON object.", 400);
+  }
+}
+
+export function defaultNormalizedRecord(
+  record: Record<string, unknown>,
+  resourceType: string,
+  eventType?: string,
+): NormalizedRecord {
+  const externalId = String(
+    record.id ?? record.uuid ?? record.uri ?? sha256(JSON.stringify(record)),
+  );
+  const timestamp = String(
+    record.updated_at ??
+      record.timestamp_updated ??
+      record.created_at ??
+      record.timestamp ??
+      new Date().toISOString(),
+  );
+  const email = typeof record.email === "string" ? record.email.trim().toLowerCase() : undefined;
+  const rawPhone = typeof record.phone === "string" ? record.phone : undefined;
+  const phoneDigits = rawPhone?.replace(/[^0-9+]/g, "");
+  const amount = record.amount ?? record.value ?? record.revenue;
+  return {
+    resourceType,
+    externalId,
+    sourceUpdatedAt: timestamp,
+    occurredAt: timestamp,
+    isDeleted: eventType?.includes("deleted") === true || eventType?.includes("canceled") === true,
+    data: record,
+    promoted: {
+      displayName:
+        typeof record.name === "string"
+          ? record.name
+          : [record.first_name, record.last_name]
+              .filter((value) => typeof value === "string")
+              .join(" ") || undefined,
+      normalizedEmail: email,
+      normalizedPhone: phoneDigits?.startsWith("+") ? phoneDigits : undefined,
+      status: typeof record.status === "string" ? record.status : undefined,
+      ownerExternalId: typeof record.user_id === "string" ? record.user_id : undefined,
+      campaignExternalId: typeof record.campaign_id === "string" ? record.campaign_id : undefined,
+      amount: typeof amount === "number" || typeof amount === "string" ? String(amount) : undefined,
+      currency: typeof record.currency === "string" ? record.currency.toUpperCase() : undefined,
+    },
+    ...(eventType
+      ? {
+          activity: {
+            type: eventType,
+            externalId: `${eventType}:${externalId}`,
+            occurredAt: timestamp,
+            dimensions: record,
+            promoted: {
+              status: typeof record.status === "string" ? record.status : undefined,
+              channel: typeof record.channel === "string" ? record.channel : undefined,
+              ownerId: typeof record.user_id === "string" ? record.user_id : undefined,
+              amount:
+                typeof amount === "number" || typeof amount === "string"
+                  ? String(amount)
+                  : undefined,
+              durationSeconds:
+                typeof record.duration === "number"
+                  ? Math.max(0, Math.round(record.duration))
+                  : undefined,
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+export function subscriptionId(): string {
+  return randomUUID();
+}

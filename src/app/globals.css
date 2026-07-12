@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f8fa;
+  --foreground: #17201d;
+  --card: #ffffff;
+  --muted: #65716c;
+  --line: #e4e9e6;
+  --brand: #166b52;
+  --brand-dark: #0f4f3d;
+  --brand-soft: #e8f5ef;
+  --warning: #9b6517;
+  --warning-soft: #fff7e7;
+  --danger: #b83a3a;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--background);
+}
+body {
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.shell-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(20 39 31 / 0.04);
+}
+
+.legal-copy {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+.legal-copy h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.6rem;
+  color: var(--foreground);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.legal-copy p + p {
+  margin-top: 0.8rem;
+}
+.legal-copy a {
+  color: var(--brand-dark);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
