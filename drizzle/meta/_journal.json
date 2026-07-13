@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1783789204272,
-      "tag": "0000_faithful_wild_child",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1783789209454,
-      "tag": "0001_tenant_rls",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1783801017460,
-      "tag": "0002_smart_grey_gargoyle",
+      "when": 1783878401731,
+      "tag": "0000_spotty_tyrannus",
       "breakpoints": true
     }
   ]

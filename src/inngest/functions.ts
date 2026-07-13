@@ -1,9 +1,9 @@
-import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { cron, eventType } from "inngest";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
-import { outboxEvents } from "@/db/schema";
+import { operationalMeasurements, outboxEvents } from "@/db/schema";
 import { inngest } from "@/inngest/client";
 import { markDeadLetter, processRawEvent } from "@/server/ingestion/service";
 import { env } from "@/lib/env";
@@ -25,7 +25,11 @@ const functionFailed = eventType("inngest/function.failed", {
   }),
 });
 const connectionReconcile = eventType("namzi/connection.reconcile", {
-  schema: z.object({ connectionId: z.string().uuid() }),
+  schema: z.object({
+    connectionId: z.string().uuid(),
+    cursor: z.string().optional(),
+    runId: z.string().uuid().optional(),
+  }),
 });
 
 export const processRawEventFunction = inngest.createFunction(
@@ -93,26 +97,42 @@ export const reconcileConnectionFunction = inngest.createFunction(
   {
     id: "reconcile-connection",
     retries: 5,
-    concurrency: { limit: 2, key: "event.data.connectionId" },
+    concurrency: { limit: 1, key: "event.data.connectionId" },
     triggers: [connectionReconcile],
   },
   async ({ event, step }) => {
-    let cursor: string | undefined;
+    let cursor: string | undefined = event.data.cursor;
+    let runId: string | undefined = event.data.runId;
     let pages = 0;
     let recordsWritten = 0;
+    let recordsDeleted = 0;
     do {
       const page = await step.run(`reconcile-page-${pages}`, async () =>
         reconcilePage(getDb(), {
           connectionId: event.data.connectionId,
           cursor,
+          runId,
           callbackUrl: `${env().APP_URL}/api/webhooks/${event.data.connectionId}`,
         }),
       );
       cursor = page.nextCursor ?? undefined;
+      runId = page.runId;
       recordsWritten += page.recordsWritten;
+      recordsDeleted += page.recordsDeleted;
       pages += 1;
     } while (cursor && pages < 100);
-    return { pages, recordsWritten, continuationRequired: Boolean(cursor) };
+    if (cursor && runId) {
+      await step.sendEvent("continue-reconciliation", {
+        name: "namzi/connection.reconcile",
+        data: { connectionId: event.data.connectionId, cursor, runId },
+      });
+    }
+    return {
+      pages,
+      recordsWritten,
+      recordsDeleted,
+      continuationRequired: Boolean(cursor),
+    };
   },
 );
 
@@ -123,7 +143,7 @@ export const scheduleReconciliationFunction = inngest.createFunction(
       getDb()
         .select({ id: connections.id })
         .from(connections)
-        .where(eq(connections.status, "active")),
+        .where(inArray(connections.status, ["active", "delayed", "error"])),
     );
     await step.sendEvent(
       "fan-out-reconciliation",
@@ -133,6 +153,19 @@ export const scheduleReconciliationFunction = inngest.createFunction(
       })),
     );
     return { scheduled: active.length };
+  },
+);
+
+export const purgeOperationalMeasurementsFunction = inngest.createFunction(
+  { id: "purge-operational-measurements", retries: 3, triggers: [cron("15 3 * * *")] },
+  async ({ step }) => {
+    const removed = await step.run("purge-expired-measurements", async () =>
+      getDb()
+        .delete(operationalMeasurements)
+        .where(lt(operationalMeasurements.recordedAt, new Date(Date.now() - 30 * 86_400_000)))
+        .returning({ id: operationalMeasurements.id }),
+    );
+    return { removed: removed.length };
   },
 );
 
@@ -166,4 +199,5 @@ export const inngestFunctions = [
   reconcileConnectionFunction,
   scheduleReconciliationFunction,
   renewSubscriptionsFunction,
+  purgeOperationalMeasurementsFunction,
 ];

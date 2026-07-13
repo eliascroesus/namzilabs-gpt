@@ -7,6 +7,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ connectionId: string }> },
 ) {
+  const startedAt = performance.now();
   const requestId = requestIdFrom(request);
   try {
     const { connectionId } = await params;
@@ -15,6 +16,7 @@ export async function POST(
       connectionId,
       request: { rawBody, headers: request.headers },
       appUrl: env().APP_URL,
+      startedAt,
     });
     return Response.json(
       { ...result, requestId },

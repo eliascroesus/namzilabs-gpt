@@ -1,8 +1,8 @@
-import { AlertTriangle, CheckCircle2, Clock3, Database, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, Database } from "lucide-react";
 
 import { getConnector } from "@/connectors/registry";
 import { getDb } from "@/db/client";
-import { Button } from "@/components/ui/button";
+import { ConnectionActions } from "@/components/connection-actions";
 import { GoogleSheetSetup } from "@/components/google-sheet-setup";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { asProviderId, connectionDetails } from "@/server/connections/service";
@@ -48,14 +48,11 @@ export default async function ConnectionPage({
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary">
-            <RefreshCw size={15} /> Retry
-          </Button>
-          <Button variant="secondary">
-            <Trash2 size={15} /> Disconnect
-          </Button>
-        </div>
+        <ConnectionActions
+          connectionId={connection.id}
+          provider={connection.provider}
+          status={connection.status}
+        />
       </div>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

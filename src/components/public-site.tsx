@@ -55,6 +55,9 @@ export function PublicFooter() {
           <Link href="/terms" className="hover:text-[var(--foreground)]">
             Terms of Service
           </Link>
+          <Link href="/subprocessors" className="hover:text-[var(--foreground)]">
+            Subprocessors
+          </Link>
           <a href="mailto:support@namzilabs.co" className="hover:text-[var(--foreground)]">
             Contact
           </a>

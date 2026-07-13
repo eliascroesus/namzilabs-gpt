@@ -60,7 +60,14 @@ export async function POST(request: Request) {
         name: input.name,
         apiVersion: connector.manifest.apiVersion,
         mappingVersion: connector.manifest.mappingVersion,
-        configuration: input.configuration,
+        configuration:
+          input.provider === "webhook"
+            ? {
+                requireTimestamp: true,
+                webhookToleranceSeconds: 300,
+                ...input.configuration,
+              }
+            : input.configuration,
       })
       .returning();
     if (!connection) throw new Error("Connection insert failed");
@@ -100,6 +107,23 @@ export async function POST(request: Request) {
           );
       }
     }
+    if (input.provider === "webhook") {
+      await db
+        .update(connections)
+        .set({
+          externalAccountId: connection.id,
+          externalAccountName: "Webhook endpoint",
+          status: "active",
+          freshness: "live",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(connections.organizationId, tenant.organizationId),
+            eq(connections.id, connection.id),
+          ),
+        );
+    }
     await db.insert(auditLogs).values({
       organizationId: tenant.organizationId,
       actorUserId: tenant.userId,
@@ -113,7 +137,7 @@ export async function POST(request: Request) {
       {
         data: {
           id: connection.id,
-          status: input.apiKey ? "active" : "draft",
+          status: input.apiKey || input.provider === "webhook" ? "active" : "draft",
           ...(input.provider === "webhook"
             ? {
                 webhookUrl: `${env().APP_URL}/api/webhooks/${connection.id}`,

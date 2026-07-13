@@ -14,6 +14,7 @@ import {
 import { sha256 } from "@/lib/crypto";
 import { AppError } from "@/lib/errors";
 import { connectorContext, getPublicConnection } from "@/server/connections/service";
+import { recordMeasurementSafely } from "@/server/operations/service";
 
 const SAFE_HEADERS = new Set([
   "content-type",
@@ -23,6 +24,7 @@ const SAFE_HEADERS = new Set([
   "x-goog-resource-id",
   "x-goog-resource-state",
   "close-sig-timestamp",
+  "x-namzi-timestamp",
 ]);
 
 function safeHeaders(headers: Headers): Record<string, string> {
@@ -44,7 +46,7 @@ export function isIncomingStale(
 
 export async function ingestWebhook(
   db: Database,
-  input: { connectionId: string; request: IncomingWebhook; appUrl: string },
+  input: { connectionId: string; request: IncomingWebhook; appUrl: string; startedAt?: number },
 ): Promise<{ accepted: number; duplicates: number; eventIds: string[] }> {
   const connection = await getPublicConnection(db, input.connectionId);
   const maxBodyBytes = Number(connection.configuration.maxBodyBytes ?? 1_048_576);
@@ -117,6 +119,14 @@ export async function ingestWebhook(
         payload: { rawEventId: eventId },
       });
     }
+  });
+  await recordMeasurementSafely(db, {
+    organizationId: connection.organizationId,
+    connectionId: connection.id,
+    name: "webhook_acceptance_ms",
+    value: Math.max(0, performance.now() - (input.startedAt ?? performance.now())),
+    unit: "ms",
+    safeDimensions: { provider: connection.provider, duplicate: eventIds.length === 0 },
   });
   return { accepted: eventIds.length, duplicates, eventIds };
 }
@@ -283,6 +293,14 @@ export async function processRawEvent(db: Database, rawEventId: string): Promise
         updatedAt: new Date(),
       })
       .where(eq(connections.id, connection.id));
+  });
+  await recordMeasurementSafely(db, {
+    organizationId: event.organizationId,
+    connectionId: event.connectionId,
+    name: "webhook_to_dashboard_ms",
+    value: Math.max(0, Date.now() - event.receivedAt.getTime()),
+    unit: "ms",
+    safeDimensions: { provider: event.provider, eventType: event.eventType },
   });
 }
 

@@ -20,19 +20,40 @@ const context: ConnectorContext = {
 
 describe("generic webhook", () => {
   it("accepts the configured secret header", async () => {
-    const headers = new Headers({ "x-namzi-webhook-secret": context.credentials.webhookSecret! });
+    const headers = new Headers({
+      "x-namzi-webhook-secret": context.credentials.webhookSecret!,
+      "x-namzi-timestamp": String(Math.floor(Date.now() / 1_000)),
+    });
     await expect(webhookConnector.verifyWebhook(context, { rawBody, headers })).resolves.toBe(true);
   });
 
   it("accepts a valid HMAC and rejects a modified payload", async () => {
+    const timestamp = String(Math.floor(Date.now() / 1_000));
     const signature = createHmac("sha256", context.credentials.webhookSecret!)
-      .update(rawBody)
+      .update(`${timestamp}.${rawBody}`)
       .digest("hex");
-    const headers = new Headers({ "x-namzi-signature": `sha256=${signature}` });
+    const headers = new Headers({
+      "x-namzi-signature": `sha256=${signature}`,
+      "x-namzi-timestamp": timestamp,
+    });
     await expect(webhookConnector.verifyWebhook(context, { rawBody, headers })).resolves.toBe(true);
     await expect(
       webhookConnector.verifyWebhook(context, { rawBody: `${rawBody} `, headers }),
     ).resolves.toBe(false);
+  });
+
+  it("rejects a correctly signed replay outside the five-minute window", async () => {
+    const timestamp = String(Math.floor(Date.now() / 1_000) - 301);
+    const signature = createHmac("sha256", context.credentials.webhookSecret!)
+      .update(`${timestamp}.${rawBody}`)
+      .digest("hex");
+    const headers = new Headers({
+      "x-namzi-signature": `sha256=${signature}`,
+      "x-namzi-timestamp": timestamp,
+    });
+    await expect(webhookConnector.verifyWebhook(context, { rawBody, headers })).resolves.toBe(
+      false,
+    );
   });
 
   it("extracts configured fields and yields stable deduplication", async () => {

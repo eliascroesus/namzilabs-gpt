@@ -16,13 +16,15 @@ describe("OAuth state", () => {
     resetEnvForTests();
   });
 
-  it("signs state and binds provider, tenant and connection", () => {
+  it("encrypts state and binds provider, tenant and connection", () => {
     const state = createOAuthState(
       "google-sheets",
       "00000000-0000-4000-8000-000000000001",
       "00000000-0000-4000-8000-000000000002",
     );
-    expect(openOAuthState(sealOAuthState(state))).toEqual(state);
+    const sealed = sealOAuthState(state);
+    expect(sealed).not.toContain(state.verifier);
+    expect(openOAuthState(sealed)).toEqual(state);
     expect(pkceChallenge(state.verifier)).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
@@ -34,5 +36,16 @@ describe("OAuth state", () => {
     );
     const sealed = sealOAuthState(state);
     expect(() => openOAuthState(`${sealed.slice(0, -2)}aa`)).toThrow("OAuth state is invalid");
+  });
+
+  it("rejects an otherwise valid expired state", () => {
+    const state = createOAuthState(
+      "google-sheets",
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+    );
+    expect(() => openOAuthState(sealOAuthState({ ...state, expiresAt: Date.now() - 1 }))).toThrow(
+      "OAuth state expired",
+    );
   });
 });

@@ -12,7 +12,8 @@ gh auth login
 gh auth status
 ```
 
-After authentication, add the repository as `origin`, commit the complete project, and push `main`.
+After authentication, commit the complete project on a feature branch, push it, open a pull request
+into `main`, and merge only after CI passes.
 
 ## 2. Create Neon production storage
 
@@ -26,21 +27,20 @@ After authentication, add the repository as `origin`, commit the complete projec
 
 Use the pooled `-pooler` host at runtime. Use the direct host only for migrations and administrative scripts.
 
-## 3. Configure WorkOS AuthKit
+## 3. Configure the prototype password wall
 
-1. Open WorkOS Dashboard → **Authentication** → **Applications**.
-2. In staging, add `http://localhost:3000/auth/callback` as a redirect URI.
-3. In production, add `https://namzilabs.co/auth/callback` as a redirect URI and set the logout URI to `https://namzilabs.co`.
-4. Copy the environment-specific API key and Client ID.
-5. Create a WorkOS organization, add your user, and assign the `owner` role.
-6. Add the organization and user identifiers to `.env.local`, then run `pnpm db:provision`.
+This prototype deliberately uses one shared password and must not be described as customer-grade
+authentication. Put the password only in `.env.local` and Vercel encrypted environment variables;
+never commit it.
 
-Provisioning-only variables:
+Add the prototype identity variables to `.env.local`, run `pnpm db:migrate`, then run
+`pnpm db:provision`.
 
 ```dotenv
-WORKOS_ORGANIZATION_ID=org_...
-WORKOS_USER_ID=user_...
-WORKOS_USER_EMAIL=you@namzilabs.co
+APP_PASSWORD=<long private prototype password>
+APP_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001
+APP_USER_ID=prototype-admin
+APP_ROLE=owner
 ORGANIZATION_NAME=Namzi Labs
 ORGANIZATION_SLUG=namzi-labs
 ORGANIZATION_TIMEZONE=Europe/Stockholm
@@ -58,12 +58,12 @@ Required production values:
 ```dotenv
 APP_ENV=production
 APP_URL=https://namzilabs.co
+APP_PASSWORD=<long private prototype password>
+APP_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001
+APP_USER_ID=prototype-admin
+APP_ROLE=owner
 DATABASE_URL=<Neon pooled URL>
 ENCRYPTION_KEY_BASE64=<openssl rand -base64 32>
-WORKOS_API_KEY=<WorkOS production API key>
-WORKOS_CLIENT_ID=<WorkOS production client ID>
-WORKOS_COOKIE_PASSWORD=<openssl rand -base64 32>
-NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://namzilabs.co/auth/callback
 INNGEST_EVENT_KEY=<Inngest production event key>
 INNGEST_SIGNING_KEY=<Inngest production signing key>
 INNGEST_SERVE_ORIGIN=https://namzilabs.co
@@ -103,7 +103,7 @@ The easiest path is the official Inngest integration in the Vercel Marketplace. 
 ## 8. Production smoke test
 
 1. Open `https://namzilabs.co`, `/privacy`, `/terms`, `/robots.txt`, and `/sitemap.xml` in a private browser window.
-2. Click **Open workspace** and complete WorkOS sign-in.
+2. Click **Open workspace**, enter the Vercel `APP_PASSWORD`, and confirm `/overview` opens.
 3. Open **Integrations** → **Google Sheets** → **Continue to Google Sheets**.
 4. Approve the two read-only scopes.
 5. Paste the spreadsheet ID from the URL, enter a range such as `Leads!A:Z`, and choose a stable unique-key column.

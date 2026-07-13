@@ -29,6 +29,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prov
     db,
     connection,
     `${env().APP_URL}/api/webhooks/${connection.id}`,
+    { refreshAccessToken: false },
   );
   context.credentials.oauthState = state.state;
   context.credentials.pkceChallenge = pkceChallenge(state.verifier);

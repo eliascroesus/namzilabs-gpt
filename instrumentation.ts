@@ -1,8 +1,10 @@
 import * as Sentry from "@sentry/nextjs";
 
 import { redactSensitive } from "@/lib/redaction";
+import { assertProductionEnvironment } from "@/lib/env";
 
 export async function register() {
+  assertProductionEnvironment();
   if (process.env.NEXT_RUNTIME === "nodejs") {
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,

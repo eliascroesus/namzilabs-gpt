@@ -21,13 +21,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:provision": "tsx scripts/provision-organization.ts",
+    "db:rotate-credentials": "tsx scripts/rotate-credentials.ts",
+    "db:verify-restore": "tsx scripts/verify-database-restore.ts",
     "db:check": "drizzle-kit check",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
     "@sentry/nextjs": "10.65.0",
-    "@workos-inc/authkit-nextjs": "4.2.0",
-    "@workos-inc/node": "10.7.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "drizzle-orm": "0.45.2",

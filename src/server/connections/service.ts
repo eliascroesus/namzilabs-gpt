@@ -37,8 +37,9 @@ export async function connectorContext(
   db: Database,
   connection: typeof connections.$inferSelect,
   callbackUrl: string,
+  options: { refreshAccessToken?: boolean } = {},
 ): Promise<ConnectorContext> {
-  await ensureFreshAccessToken(db, connection);
+  if (options.refreshAccessToken !== false) await ensureFreshAccessToken(db, connection);
   return {
     organizationId: connection.organizationId,
     connectionId: connection.id,

@@ -18,7 +18,6 @@ const timestamps = {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 };
 
-export const roleEnum = pgEnum("membership_role", ["owner", "admin", "editor", "viewer"]);
 export const connectionStatusEnum = pgEnum("connection_status", [
   "draft",
   "active",
@@ -69,30 +68,11 @@ export const exportStatusEnum = pgEnum("export_status", [
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  workosOrganizationId: text("workos_organization_id").notNull().unique(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   timezone: text("timezone").notNull().default("UTC"),
   ...timestamps,
 });
-
-export const memberships = pgTable(
-  "memberships",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    organizationId: uuid("organization_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    workosUserId: text("workos_user_id").notNull(),
-    email: text("email").notNull(),
-    role: roleEnum("role").notNull().default("viewer"),
-    ...timestamps,
-  },
-  (table) => [
-    uniqueIndex("memberships_org_user_uidx").on(table.organizationId, table.workosUserId),
-    index("memberships_org_idx").on(table.organizationId),
-  ],
-);
 
 export const connections = pgTable(
   "connections",
@@ -111,6 +91,8 @@ export const connections = pgTable(
     freshness: text("freshness").notNull().default("unknown"),
     lastEventAt: timestamp("last_event_at", { withTimezone: true }),
     lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    lastSuccessfulSyncAt: timestamp("last_successful_sync_at", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
     lastErrorCode: text("last_error_code"),
     lastErrorMessage: text("last_error_message"),
     configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
@@ -242,6 +224,7 @@ export const syncRuns = pgTable(
     cursorEnd: text("cursor_end"),
     recordsSeen: integer("records_seen").notNull().default(0),
     recordsWritten: integer("records_written").notNull().default(0),
+    recordsDeleted: integer("records_deleted").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     errorCode: text("error_code"),
@@ -720,4 +703,37 @@ export const auditLogs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("audit_logs_org_created_idx").on(table.organizationId, table.createdAt)],
+);
+
+export const operationalMeasurements = pgTable(
+  "operational_measurements",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id").references(() => connections.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    value: numeric("value", { precision: 20, scale: 4 }).notNull(),
+    unit: text("unit").notNull(),
+    outcome: text("outcome").notNull().default("success"),
+    safeDimensions: jsonb("safe_dimensions")
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default({}),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("operational_measurements_org_name_recorded_idx").on(
+      table.organizationId,
+      table.name,
+      table.recordedAt,
+    ),
+    index("operational_measurements_connection_recorded_idx").on(
+      table.connectionId,
+      table.recordedAt,
+    ),
+  ],
 );
