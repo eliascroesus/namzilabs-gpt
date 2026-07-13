@@ -1,11 +1,12 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 
 import { MetricCard } from "@/components/metric-card";
 import { getDb } from "@/db/client";
-import { metrics } from "@/db/schema";
+import { metrics, metricVersions } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
+import { parseMetricDefinition } from "@/server/metrics/dsl";
 
 export const metadata = { title: "Metrics" };
 export const dynamic = "force-dynamic";
@@ -13,8 +14,22 @@ export const dynamic = "force-dynamic";
 export default async function MetricsPage() {
   const tenant = await requireTenantContext();
   const rows = await getDb()
-    .select()
+    .select({
+      id: metrics.id,
+      slug: metrics.slug,
+      name: metrics.name,
+      description: metrics.description,
+      currentPublishedVersion: metrics.currentPublishedVersion,
+      definition: metricVersions.definition,
+    })
     .from(metrics)
+    .leftJoin(
+      metricVersions,
+      and(
+        eq(metricVersions.metricId, metrics.id),
+        eq(metricVersions.version, metrics.currentPublishedVersion),
+      ),
+    )
     .where(eq(metrics.organizationId, tenant.organizationId))
     .orderBy(desc(metrics.updatedAt));
   return (
@@ -47,7 +62,15 @@ export default async function MetricsPage() {
       ) : (
         <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((metric) => (
-            <MetricCard key={metric.id} metric={metric} />
+            <MetricCard
+              key={metric.id}
+              metric={{
+                ...metric,
+                category: metric.definition
+                  ? parseMetricDefinition(metric.definition).category
+                  : "Uncategorized",
+              }}
+            />
           ))}
         </div>
       )}

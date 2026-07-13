@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/errors";
 
-export type DatePreset = "last_7_days" | "last_30_days" | "this_month" | "this_quarter";
+export type DatePreset =
+  "today" | "yesterday" | "last_7_days" | "last_30_days" | "this_month" | "this_quarter";
 
 function partsAt(date: Date, timezone: string): Record<string, number> {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -65,7 +66,12 @@ export function dateRangeForPreset(
   const current = partsAt(now, timezone);
   const endDay = new Date(Date.UTC(current.year!, current.month! - 1, current.day! + 1));
   let startDay: Date;
-  if (preset === "last_7_days" || preset === "last_30_days") {
+  if (preset === "today") {
+    startDay = new Date(endDay.getTime() - 86_400_000);
+  } else if (preset === "yesterday") {
+    startDay = new Date(endDay.getTime() - 2 * 86_400_000);
+    endDay.setUTCDate(endDay.getUTCDate() - 1);
+  } else if (preset === "last_7_days" || preset === "last_30_days") {
     startDay = new Date(endDay.getTime() - (preset === "last_7_days" ? 7 : 30) * 86_400_000);
   } else if (preset === "this_month") {
     startDay = new Date(Date.UTC(current.year!, current.month! - 1, 1));

@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+
 import { getDb } from "@/db/client";
 import { auditLogs, dashboardCards, dashboards, metricVersions } from "@/db/schema";
 import { AppError, errorResponse, requestIdFrom } from "@/lib/errors";
@@ -7,31 +8,25 @@ import {
   dashboardMutationSchema,
   referencedMetricVersionIds,
 } from "@/server/dashboards/validation";
-export async function GET(request: Request) {
-  const requestId = requestIdFrom(request);
-  try {
-    const tenant = await requireTenantContext();
-    const rows = await getDb()
-      .select()
-      .from(dashboards)
-      .where(eq(dashboards.organizationId, tenant.organizationId))
-      .orderBy(desc(dashboards.updatedAt));
-    return Response.json(
-      { data: rows, requestId },
-      { headers: { "cache-control": "no-store", "x-request-id": requestId } },
-    );
-  } catch (error) {
-    return errorResponse(error, requestId);
-  }
-}
-export async function POST(request: Request) {
+
+export async function PUT(request: Request, context: { params: Promise<{ dashboardId: string }> }) {
   const requestId = requestIdFrom(request);
   try {
     const tenant = await requireTenantContext("editor");
+    const dashboardId = (await context.params).dashboardId;
     const input = dashboardMutationSchema.parse(await request.json());
     new Intl.DateTimeFormat("en", { timeZone: input.timezone }).format();
     const db = getDb();
     const data = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: dashboards.id })
+        .from(dashboards)
+        .where(
+          and(eq(dashboards.id, dashboardId), eq(dashboards.organizationId, tenant.organizationId)),
+        )
+        .limit(1);
+      if (!existing) throw new AppError("dashboard_not_found", "Dashboard not found.", 404);
+
       const referencedIds = referencedMetricVersionIds(input);
       const versions = referencedIds.length
         ? await tx
@@ -52,36 +47,47 @@ export async function POST(request: Request) {
           404,
         );
       }
+
       const [dashboard] = await tx
-        .insert(dashboards)
-        .values({
-          organizationId: tenant.organizationId,
+        .update(dashboards)
+        .set({
           name: input.name,
           description: input.description,
           timezone: input.timezone,
           defaultDateRange: input.defaultDateRange,
-          createdByUserId: tenant.userId,
+          updatedAt: new Date(),
         })
+        .where(
+          and(eq(dashboards.id, dashboardId), eq(dashboards.organizationId, tenant.organizationId)),
+        )
         .returning();
-      if (!dashboard) throw new Error("Dashboard insert failed");
-      if (input.cards.length)
+      await tx
+        .delete(dashboardCards)
+        .where(
+          and(
+            eq(dashboardCards.dashboardId, dashboardId),
+            eq(dashboardCards.organizationId, tenant.organizationId),
+          ),
+        );
+      if (input.cards.length) {
         await tx.insert(dashboardCards).values(
-          input.cards.map((card, index) => ({
+          input.cards.map((card, position) => ({
             organizationId: tenant.organizationId,
-            dashboardId: dashboard.id,
+            dashboardId,
             metricVersionId: card.metricVersionId,
             cardType: card.cardType,
             title: card.title,
-            position: index,
+            position,
             configuration: card.configuration,
           })),
         );
+      }
       await tx.insert(auditLogs).values({
         organizationId: tenant.organizationId,
         actorUserId: tenant.userId,
-        action: "dashboard.created",
+        action: "dashboard.updated",
         resourceType: "dashboard",
-        resourceId: dashboard.id,
+        resourceId: dashboardId,
         requestId,
         safeMetadata: { cardCount: input.cards.length },
       });
@@ -89,7 +95,7 @@ export async function POST(request: Request) {
     });
     return Response.json(
       { data, requestId },
-      { status: 201, headers: { "x-request-id": requestId } },
+      { headers: { "cache-control": "no-store", "x-request-id": requestId } },
     );
   } catch (error) {
     return errorResponse(error, requestId);

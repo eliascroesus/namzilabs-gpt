@@ -1,39 +1,35 @@
-import { and, count, desc, eq, gte, sql } from "drizzle-orm";
-import {
-  AlertTriangle,
-  ArrowRight,
-  Database,
-  Gauge,
-  Plus,
-  Radio,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+import { and, asc, count, desc, eq, gte, lt } from "drizzle-orm";
+import { AlertTriangle, Database, Gauge, Plus, Radio } from "lucide-react";
 import Link from "next/link";
 
-import { MetricVisualizations, type MetricVisualization } from "@/components/metric-visualizations";
+import {
+  DashboardWorkspace,
+  type DashboardMetric,
+  type SavedDashboard,
+} from "@/components/dashboard-workspace";
 import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
-import { connections, deadLetterEvents, metrics, metricVersions, sourceRecords } from "@/db/schema";
+import {
+  connectionResources,
+  connections,
+  dashboardCards,
+  dashboards,
+  deadLetterEvents,
+  metrics,
+  metricVersions,
+  organizations,
+  sourceRecords,
+} from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { parseMetricDefinition, type MetricDefinition } from "@/server/metrics/dsl";
 import { executeDefinitionSeries, executeSavedMetricVersion } from "@/server/metrics/service";
+import { dateRangeForPreset, type DatePreset } from "@/server/metrics/time";
 
-function isPercentageMetric(definition: Record<string, unknown>): boolean {
-  const measure = definition.measure;
-  if (!measure || typeof measure !== "object") return false;
-  const operation = Reflect.get(measure, "operation");
+function isPercentageMetric(definition: MetricDefinition): boolean {
   return (
-    operation === "percentage" || (operation === "ratio" && Reflect.get(measure, "asPercentage"))
+    definition.measure.operation === "percentage" ||
+    (definition.measure.operation === "ratio" && definition.measure.asPercentage)
   );
-}
-
-function metricLabel(value: number | null, percentage = false): string {
-  if (value === null) return "—";
-  const formatted = Number.isInteger(value)
-    ? value.toLocaleString()
-    : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  return percentage ? `${formatted}%` : formatted;
 }
 
 function sourceLabel(definition: MetricDefinition): string {
@@ -44,10 +40,63 @@ function sourceLabel(definition: MetricDefinition): string {
   );
 }
 
-export async function AnalyticsOverview({ title = "Live overview" }: { title?: string }) {
+function wallClockKey(date: Date, timezone: string, hourly: boolean): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(hourly ? { hour: "2-digit", hourCycle: "h23" as const } : {}),
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const day = `${values.year}-${values.month}-${values.day}`;
+  return hourly ? `${day}T${values.hour}` : day;
+}
+
+function rowBucketKey(value: unknown, hourly: boolean): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, hourly ? 13 : 10);
+  return date.toISOString().slice(0, hourly ? 13 : 10);
+}
+
+function rangeLabel(range: DatePreset): string {
+  if (range === "today") return "Today";
+  if (range === "yesterday") return "Yesterday";
+  if (range === "last_7_days") return "7-day";
+  if (range === "last_30_days") return "30-day";
+  if (range === "this_month") return "This-month";
+  return "This-quarter";
+}
+
+export async function AnalyticsOverview({
+  title = "Live overview",
+  range,
+}: {
+  title?: string;
+  range?: DatePreset;
+}) {
   const tenant = await requireTenantContext();
   const db = getDb();
-  const [connectionRows, recordRows, activityRows, deadLetterRows, metricRows] = await Promise.all([
+  const [
+    [organization],
+    [dashboardRow],
+    connectionRows,
+    recordRows,
+    deadLetterRows,
+    metricRows,
+    resourceRows,
+  ] = await Promise.all([
+    db
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, tenant.organizationId))
+      .limit(1),
+    db
+      .select()
+      .from(dashboards)
+      .where(eq(dashboards.organizationId, tenant.organizationId))
+      .orderBy(desc(dashboards.updatedAt))
+      .limit(1),
     db
       .select({
         id: connections.id,
@@ -68,16 +117,6 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         and(
           eq(sourceRecords.organizationId, tenant.organizationId),
           eq(sourceRecords.isDeleted, false),
-        ),
-      ),
-    db
-      .select({ value: count() })
-      .from(sourceRecords)
-      .where(
-        and(
-          eq(sourceRecords.organizationId, tenant.organizationId),
-          eq(sourceRecords.isDeleted, false),
-          gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
         ),
       ),
     db
@@ -104,52 +143,123 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
       )
       .where(eq(metrics.organizationId, tenant.organizationId))
       .orderBy(desc(metrics.updatedAt))
-      .limit(12),
+      .limit(40),
+    db
+      .select({
+        connectionId: connectionResources.connectionId,
+        externalId: connectionResources.externalId,
+        configuration: connectionResources.configuration,
+      })
+      .from(connectionResources)
+      .where(eq(connectionResources.organizationId, tenant.organizationId)),
   ]);
 
-  const end = new Date();
-  const start = new Date(end.getTime() - 30 * 86_400_000);
+  const timezone = organization?.timezone ?? dashboardRow?.timezone ?? "UTC";
+  const savedRange = dashboardRow?.defaultDateRange as DatePreset | undefined;
+  const effectiveRange =
+    range ??
+    (savedRange && ["today", "yesterday", "last_7_days", "last_30_days"].includes(savedRange)
+      ? savedRange
+      : "last_30_days");
+  const window = dateRangeForPreset(effectiveRange, timezone);
+  const [activityRows, cardRows] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+          gte(sourceRecords.occurredAt, window.start),
+          lt(sourceRecords.occurredAt, window.end),
+        ),
+      ),
+    dashboardRow
+      ? db
+          .select({
+            metricVersionId: dashboardCards.metricVersionId,
+            cardType: dashboardCards.cardType,
+            title: dashboardCards.title,
+            position: dashboardCards.position,
+            configuration: dashboardCards.configuration,
+          })
+          .from(dashboardCards)
+          .where(
+            and(
+              eq(dashboardCards.organizationId, tenant.organizationId),
+              eq(dashboardCards.dashboardId, dashboardRow.id),
+            ),
+          )
+          .orderBy(asc(dashboardCards.position))
+      : Promise.resolve([]),
+  ]);
+
+  const resourceConfiguration = new Map(
+    resourceRows.map((resource) => [
+      `${resource.connectionId}:${resource.externalId}`,
+      resource.configuration,
+    ]),
+  );
+  const hourly = effectiveRange === "today" || effectiveRange === "yesterday";
+  const interval = hourly ? 3_600_000 : 86_400_000;
+  const bucketCount = Math.max(
+    1,
+    Math.round((window.end.getTime() - window.start.getTime()) / interval),
+  );
   const evaluatedMetrics = await Promise.all(
     metricRows.map(async (metric) => {
+      const definition = parseMetricDefinition(metric.definition);
+      const trendEligible = !["percentage", "ratio"].includes(definition.measure.operation);
+      const resource = definition.source
+        ? resourceConfiguration.get(
+            `${definition.source.connectionId}:${definition.source.resourceId}`,
+          )
+        : undefined;
+      const estimatedTime =
+        definition.dataset === "source_records" &&
+        definition.source?.provider === "google-sheets" &&
+        typeof resource?.timestampColumn !== "string";
       try {
-        const definition = parseMetricDefinition(metric.definition);
-        const trendEligible = !["percentage", "ratio"].includes(definition.measure.operation);
         const [result, trendResult] = await Promise.all([
           executeSavedMetricVersion(db, tenant.organizationId, metric.versionId, {
-            start,
-            end,
-            timezone: "UTC",
+            ...window,
+            timezone,
           }),
           trendEligible
             ? executeDefinitionSeries(
                 {
                   ...definition,
                   timeField: definition.timeField ?? "occurred_at",
-                  timeGrain: "day",
+                  timeGrain: hourly ? "hour" : "day",
                   groupBy: [],
                   comparison: "none",
                 },
                 tenant.organizationId,
-                { start, end, timezone: "UTC" },
+                { ...window, timezone },
               )
             : Promise.resolve([]),
         ]);
         const trendValues = new Map(
-          trendResult.map((row) => [
-            new Date(String(row.time_bucket)).toISOString().slice(0, 10),
-            Number(row.value ?? 0),
-          ]),
+          trendResult.map((row) => [rowBucketKey(row.time_bucket, hourly), Number(row.value ?? 0)]),
         );
-        const points = Array.from({ length: 30 }, (_, index) => {
-          const day = new Date(end);
-          day.setUTCHours(0, 0, 0, 0);
-          day.setUTCDate(day.getUTCDate() - (29 - index));
-          const date = day.toISOString().slice(0, 10);
-          return { date, value: trendValues.get(date) ?? 0 };
+        const points = Array.from({ length: bucketCount }, (_, index) => {
+          const instant = new Date(window.start.getTime() + index * interval);
+          const key = wallClockKey(instant, timezone, hourly);
+          return {
+            date: hourly ? `${key}:00:00Z` : `${key}T00:00:00Z`,
+            value: trendValues.get(key) ?? 0,
+            estimated: estimatedTime,
+          };
         });
-        return { ...metric, definition, ...result, points, trendEligible, error: false };
+        return {
+          ...metric,
+          definition,
+          ...result,
+          points,
+          trendEligible,
+          error: false,
+        };
       } catch {
-        const definition = parseMetricDefinition(metric.definition);
         return {
           ...metric,
           definition,
@@ -163,6 +273,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
       }
     }),
   );
+
   const activeConnections = connectionRows.filter((connection) => connection.status === "active");
   const delayedConnections = connectionRows.filter(
     (connection) => connection.status !== "active" || connection.freshness === "delayed",
@@ -170,9 +281,12 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
   const records = Number(recordRows[0]?.value ?? 0);
   const activities = Number(activityRows[0]?.value ?? 0);
   const deadLetters = Number(deadLetterRows[0]?.value ?? 0);
-  const visualizations: MetricVisualization[] = evaluatedMetrics.map((metric) => ({
+  const dashboardMetrics: DashboardMetric[] = evaluatedMetrics.map((metric) => ({
     id: metric.id,
+    versionId: metric.versionId,
     name: metric.name,
+    slug: metric.slug,
+    category: metric.definition.category,
     sourceLabel: sourceLabel(metric.definition),
     value: metric.current?.value ?? null,
     percentage: isPercentageMetric(metric.definition),
@@ -180,7 +294,11 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
     preferred: metric.definition.visualization.display,
     color: metric.definition.visualization.color,
     points: metric.points,
+    changePercent: metric.changePercent,
+    matchingCount: metric.current?.matchingCount ?? 0,
+    error: metric.error,
   }));
+  const savedDashboard: SavedDashboard = dashboardRow ? { ...dashboardRow, cards: cardRows } : null;
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -191,10 +309,10 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
           </div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Your published metrics and data pipeline health, updated from connected systems.
+            Your published metrics and data health, arranged around the decisions you make.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <RefreshAllButton />
           <Link href="/integrations" className="secondary-link">
             <Database size={15} /> Sources
@@ -209,7 +327,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         {[
           ["Active sources", activeConnections.length, `${connectionRows.length} connected`, Gauge],
           ["Unified records", records, "Available for metrics", Database],
-          ["30-day records", activities, "Available in this period", Radio],
+          [`${rangeLabel(effectiveRange)} records`, activities, "Available in this period", Radio],
           [
             "Pipeline issues",
             deadLetters + delayedConnections.length,
@@ -219,13 +337,14 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         ].map(([label, value, detail, Icon]) => {
           const TileIcon = Icon as typeof Gauge;
           return (
-            <article className="shell-card relative overflow-hidden p-5" key={String(label)}>
-              <div className="absolute -right-5 -top-5 size-24 rounded-full bg-[var(--accent)]/5 blur-2xl" />
+            <article className="summary-stat-card shell-card" key={String(label)}>
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-[var(--muted)]">{String(label)}</p>
-                <TileIcon size={15} className="text-[var(--accent)]" />
+                <span className="summary-stat-icon">
+                  <TileIcon size={15} />
+                </span>
               </div>
-              <p className="mt-3 text-3xl font-semibold tracking-tight">
+              <p className="mt-4 text-3xl font-semibold tracking-tight">
                 {Number(value).toLocaleString()}
               </p>
               <p className="mt-3 text-[11px] text-[var(--muted)]">{String(detail)}</p>
@@ -234,78 +353,12 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         })}
       </div>
 
-      <section className="mt-7">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold">Live metrics</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Current 30 days compared with the prior period.
-            </p>
-          </div>
-          <Link href="/metrics" className="text-button">
-            View all <ArrowRight size={13} />
-          </Link>
-        </div>
-        {evaluatedMetrics.length ? (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {evaluatedMetrics.slice(0, 8).map((metric) => {
-              const change = metric.changePercent;
-              const positive = typeof change === "number" && change >= 0;
-              return (
-                <Link
-                  key={metric.id}
-                  href={`/metrics/${metric.slug}`}
-                  className="shell-card group p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)]"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="truncate text-sm font-medium text-[#b8c0ce]">{metric.name}</p>
-                    <span
-                      className={`status-dot ${metric.error ? "bg-[var(--danger)]" : "bg-[var(--success)]"}`}
-                    />
-                  </div>
-                  <p className="mt-5 text-4xl font-semibold tracking-[-0.04em]">
-                    {metric.error
-                      ? "—"
-                      : metricLabel(
-                          metric.current?.value ?? null,
-                          isPercentageMetric(metric.definition),
-                        )}
-                  </p>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-[11px]">
-                    {typeof change === "number" ? (
-                      <span
-                        className={`inline-flex items-center gap-1 font-semibold ${positive ? "text-emerald-300" : "text-rose-300"}`}
-                      >
-                        {positive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                        {positive ? "+" : ""}
-                        {change.toFixed(1)}%
-                      </span>
-                    ) : (
-                      <span className="text-[var(--muted)]">No prior comparison</span>
-                    )}
-                    <span className="text-[var(--muted)]">
-                      {metric.current?.matchingCount?.toLocaleString() ?? 0} rows
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="shell-card mt-3 flex flex-col items-center px-6 py-12 text-center">
-            <Gauge size={25} className="text-[var(--muted)]" />
-            <h3 className="mt-4 font-semibold">Turn connected data into a live metric</h3>
-            <p className="mt-2 max-w-lg text-sm text-[var(--muted)]">
-              Pick an app, inspect its latest records, then choose columns and filters in the new
-              metric builder.
-            </p>
-            <Link href="/metrics/new" className="primary-link mt-5">
-              Build the first metric <ArrowRight size={14} />
-            </Link>
-          </div>
-        )}
-      </section>
-      <MetricVisualizations metrics={visualizations} />
+      <DashboardWorkspace
+        metrics={dashboardMetrics}
+        dashboard={savedDashboard}
+        range={effectiveRange}
+        timezone={timezone}
+      />
     </div>
   );
 }

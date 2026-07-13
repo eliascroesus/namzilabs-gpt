@@ -269,6 +269,7 @@ export function MetricDetailEditor({
     originalOperation === "percentage" ? initialPercentageOperands(originalMeasure) : null;
   const [name, setName] = useState(metric.name);
   const [description, setDescription] = useState(metric.description);
+  const [category, setCategory] = useState(definition.category);
   const [operation, setOperation] = useState(originalOperation);
   const [field, setField] = useState(
     "field" in originalMeasure
@@ -343,6 +344,7 @@ export function MetricDetailEditor({
     } else measure = { operation, field };
     return {
       ...definition,
+      category: category.trim() || "Uncategorized",
       measure,
       filters: isRatio ? [] : definitionFilters(filters),
       visualization: { display: visualization, color: visualizationColor },
@@ -439,7 +441,7 @@ export function MetricDetailEditor({
           <p className="mt-1 text-xs text-[var(--muted)]">
             Saving creates and publishes a traceable new version.
           </p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div className="mt-5 grid gap-4 sm:grid-cols-3">
             <label>
               <span className="field-label">Metric name</span>
               <input
@@ -456,6 +458,16 @@ export function MetricDetailEditor({
                 className="field-control mt-2 w-full"
               />
             </label>
+            <label>
+              <span className="field-label">Category</span>
+              <input
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                className="field-control mt-2 w-full"
+                placeholder="Sales, Acquisition…"
+                maxLength={80}
+              />
+            </label>
           </div>
           <label className="mt-5 block">
             <span className="field-label">Calculation</span>
@@ -464,7 +476,10 @@ export function MetricDetailEditor({
               onChange={(event) => {
                 const next = event.target.value as typeof operation;
                 setOperation(next);
-                if (["percentage", "ratio"].includes(next) && visualization === "trend") {
+                if (
+                  ["percentage", "ratio"].includes(next) &&
+                  (visualization === "trend" || visualization === "pie")
+                ) {
                   setVisualization("kpi");
                 }
               }}
@@ -608,7 +623,7 @@ export function MetricDetailEditor({
                 ["pie", "Pie slice"],
               ] as const
             ).map(([display, label]) => {
-              const disabled = display === "trend" && isPercentage;
+              const disabled = display !== "kpi" && isPercentage;
               return (
                 <button
                   key={display}

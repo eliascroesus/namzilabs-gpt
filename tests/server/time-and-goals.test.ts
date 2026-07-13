@@ -20,6 +20,16 @@ describe("timezone and daylight saving boundaries", () => {
     expect(range.start.toISOString()).toBe("2026-07-01T04:00:00.000Z");
     expect(range.end.toISOString()).toBe("2026-07-12T04:00:00.000Z");
   });
+
+  it("creates exact today and yesterday windows in the reporting timezone", () => {
+    const now = new Date("2026-07-11T12:00:00Z");
+    const today = dateRangeForPreset("today", "America/New_York", now);
+    const yesterday = dateRangeForPreset("yesterday", "America/New_York", now);
+    expect(today.start.toISOString()).toBe("2026-07-11T04:00:00.000Z");
+    expect(today.end.toISOString()).toBe("2026-07-12T04:00:00.000Z");
+    expect(yesterday.start.toISOString()).toBe("2026-07-10T04:00:00.000Z");
+    expect(yesterday.end.toISOString()).toBe("2026-07-11T04:00:00.000Z");
+  });
 });
 
 describe("documented goal status", () => {

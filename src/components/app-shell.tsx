@@ -5,16 +5,16 @@ import {
   ChartNoAxesCombined,
   Database,
   Gauge,
+  HelpCircle,
   LogOut,
   Settings,
   Sparkles,
-  Activity,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
-import { BrandWordmark } from "@/components/brand-wordmark";
+import { AppThemeProvider } from "@/components/app-theme";
 
 const navigation = [
   { label: "Overview", href: "/overview", icon: Gauge },
@@ -22,10 +22,17 @@ const navigation = [
   { label: "Metrics", href: "/metrics", icon: Sparkles },
   { label: "Data", href: "/data", icon: Database },
   { label: "Integrations", href: "/integrations", icon: Blocks },
-  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <AppThemeProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </AppThemeProvider>
+  );
+}
+
+function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -38,54 +45,59 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_80%_-20%,rgba(97,78,220,.13),transparent_34%)]">
+    <div className="app-shell-layout min-h-screen">
       <aside className="app-sidebar">
         <Link href="/overview" className="app-sidebar-brand" aria-label="Namzilabs overview">
-          <span className="sidebar-compact-brand">
-            <BrandWordmark compact />
-          </span>
-          <span className="sidebar-reveal">
-            <BrandWordmark />
-          </span>
+          <span aria-hidden="true">n.</span>
         </Link>
-        <div className="sidebar-section-label">
-          <Activity size={11} /> Workspace
-        </div>
         <nav aria-label="Primary navigation" className="app-navigation">
           {navigation.map((item) => (
             <Link
               key={item.label}
               href={item.href}
               title={item.label}
+              data-label={item.label}
               aria-current={pathname.startsWith(item.href) ? "page" : undefined}
               className={`app-nav-link ${
                 pathname.startsWith(item.href) ? "app-nav-link-active" : ""
               }`}
             >
               <item.icon size={19} aria-hidden="true" />
-              <span className="sidebar-nav-label">{item.label}</span>
+              <span className="sr-only">{item.label}</span>
             </Link>
           ))}
         </nav>
-        <div className="sidebar-health sidebar-reveal">
-          <span className="mb-2 flex items-center gap-2 font-semibold text-[#cbd1dc]">
-            <span className="size-1.5 rounded-full bg-[var(--success)] shadow-[0_0_10px_var(--success)]" />
-            Data systems online
-          </span>
-          Metrics stay traceable to source records and published definitions.
+        <div className="sidebar-bottom-navigation">
+          <Link href="/terms" className="app-nav-link" title="Help" data-label="Help">
+            <HelpCircle size={19} aria-hidden="true" />
+            <span className="sr-only">Help</span>
+          </Link>
+          <Link
+            href="/settings"
+            className={`app-nav-link ${pathname.startsWith("/settings") ? "app-nav-link-active" : ""}`}
+            title="Settings"
+            data-label="Settings"
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+          >
+            <Settings size={19} aria-hidden="true" />
+            <span className="sr-only">Settings</span>
+          </Link>
+          <button
+            type="button"
+            onClick={signOut}
+            disabled={signingOut}
+            className="app-nav-link sidebar-logout"
+            title={signingOut ? "Signing out" : "Log out"}
+            data-label={signingOut ? "Signing out…" : "Log out"}
+          >
+            <LogOut size={19} aria-hidden="true" />
+            <span className="sr-only">{signingOut ? "Signing out…" : "Log out"}</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={signOut}
-          disabled={signingOut}
-          className="app-nav-link sidebar-logout"
-          title="Log out"
-        >
-          <LogOut size={19} aria-hidden="true" />
-          <span className="sidebar-nav-label">{signingOut ? "Signing out…" : "Log out"}</span>
-        </button>
       </aside>
-      <main className="min-w-0 px-4 py-6 sm:px-7 lg:ml-[76px] lg:px-9 lg:py-8">{children}</main>
+      <main className="app-main min-w-0 px-4 py-6 sm:px-7 lg:ml-[72px] lg:px-9 lg:py-8">
+        {children}
+      </main>
     </div>
   );
 }

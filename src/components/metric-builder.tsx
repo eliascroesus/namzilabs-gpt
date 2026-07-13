@@ -448,6 +448,7 @@ export function MetricBuilder({
   const [visualization, setVisualization] = useState<VisualizationDisplay>("kpi");
   const [visualizationColor, setVisualizationColor] = useState("#8b5cf6");
   const [name, setName] = useState("New metric");
+  const [category, setCategory] = useState("Uncategorized");
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -778,6 +779,7 @@ export function MetricBuilder({
             description: `${numeratorMetric?.name ?? "Numerator"} as a percentage of ${denominatorMetric?.name ?? "denominator"}`,
             definition: {
               dataset: "source_records",
+              category: category.trim() || "Uncategorized",
               measure: {
                 operation: "ratio",
                 numeratorMetricVersionId: numeratorVersionId,
@@ -826,6 +828,7 @@ export function MetricBuilder({
       );
       const definition = {
         dataset: "source_records",
+        category: category.trim() || "Uncategorized",
         source: {
           connectionId: connection.id,
           provider: connection.provider,
@@ -1392,7 +1395,10 @@ export function MetricBuilder({
                             type="button"
                             onClick={() => {
                               setCalculation(value);
-                              if (value === "percentage" && visualization === "trend") {
+                              if (
+                                value === "percentage" &&
+                                (visualization === "trend" || visualization === "pie")
+                              ) {
                                 setVisualization("kpi");
                               }
                             }}
@@ -1740,6 +1746,19 @@ export function MetricBuilder({
                       placeholder="e.g. Qualified leads"
                     />
                   </label>
+                  <label className="mt-4 block">
+                    <span className="field-label">Category</span>
+                    <input
+                      value={category}
+                      onChange={(event) => setCategory(event.target.value)}
+                      className="field-control mt-2 w-full"
+                      placeholder="e.g. Sales, Acquisition, Delivery"
+                      maxLength={80}
+                    />
+                    <span className="mt-2 block text-xs text-[var(--muted)]">
+                      Categories become dashboard filters and keep related metrics together.
+                    </span>
+                  </label>
                   <div className="mt-6">
                     <div className="flex items-end justify-between gap-4">
                       <div>
@@ -1767,9 +1786,9 @@ export function MetricBuilder({
                           ["pie", "Pie slice", "Combine this with metrics from other sources"],
                         ] as const
                       ).map(([display, label, detail]) => {
-                        const disabled =
-                          display === "trend" &&
-                          (sourceMode === "combine" || calculation === "percentage");
+                        const isRatioMetric =
+                          sourceMode === "combine" || calculation === "percentage";
+                        const disabled = display !== "kpi" && isRatioMetric;
                         return (
                           <button
                             key={display}
@@ -1780,7 +1799,7 @@ export function MetricBuilder({
                           >
                             <span className="text-sm font-semibold">{label}</span>
                             <span className="mt-1 block text-xs text-[var(--muted)]">
-                              {disabled ? "Not available for ratio metrics" : detail}
+                              {disabled ? "Ratios only support KPI cards" : detail}
                             </span>
                           </button>
                         );
@@ -1790,6 +1809,7 @@ export function MetricBuilder({
                   <div className="mt-6 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
                     {[
                       ["Source", currentSourceLabel],
+                      ["Category", category.trim() || "Uncategorized"],
                       [
                         "Calculation",
                         sourceMode === "combine"

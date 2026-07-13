@@ -13,6 +13,7 @@ export function MetricCard({
     slug: string;
     name: string;
     description: string;
+    category: string;
     currentPublishedVersion: number | null;
   };
 }) {
@@ -39,11 +40,14 @@ export function MetricCard({
   return (
     <article className="shell-card group relative flex min-h-56 flex-col p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]">
       <div className="flex items-start justify-between gap-3">
-        <span className="rounded-md border border-[#4a3fa0] bg-[var(--brand-soft)] px-2 py-1 text-[10px] font-bold text-[var(--brand-dark)]">
-          {metric.currentPublishedVersion
-            ? `v${metric.currentPublishedVersion} published`
-            : "draft only"}
-        </span>
+        <div className="flex flex-wrap gap-2">
+          <span className="metric-category-badge">{metric.category}</span>
+          <span className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[10px] font-bold text-[var(--muted)]">
+            {metric.currentPublishedVersion
+              ? `v${metric.currentPublishedVersion} published`
+              : "draft only"}
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => void deleteMetric()}
@@ -65,7 +69,7 @@ export function MetricCard({
           </span>
           <ArrowRight
             size={15}
-            className="transition group-hover:translate-x-0.5 group-hover:text-white"
+            className="transition group-hover:translate-x-0.5 group-hover:text-[var(--foreground)]"
           />
         </div>
       </Link>

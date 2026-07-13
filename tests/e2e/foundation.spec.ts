@@ -75,14 +75,24 @@ test("primary public navigation is keyboard reachable", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Privacy Policy" })).toBeVisible();
 });
 
-test("icon navigation expands on desktop and stays usable on mobile", async ({ page }) => {
+test("compact icon navigation and theme preference stay usable", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await login(page, "/metrics/new");
   const sidebar = page.locator(".app-sidebar");
-  await expect(sidebar).toHaveCSS("width", "76px");
-  await sidebar.hover();
-  await expect(sidebar).toHaveCSS("width", "238px");
-  await expect(sidebar.getByText("namzilabs.", { exact: true })).toBeVisible();
+  const compactWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+  expect(compactWidth).toBeLessThanOrEqual(80);
+  const dashboardsLink = page.getByRole("link", { name: "Dashboards" });
+  await dashboardsLink.hover();
+  await expect
+    .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+    .toBe(compactWidth);
+  await expect
+    .poll(() => dashboardsLink.evaluate((element) => getComputedStyle(element, "::after").opacity))
+    .toBe("1");
+  await expect(page.locator(".app-theme-light")).toBeVisible();
+  await page.evaluate(() => localStorage.setItem("namzi-app-theme", "dark"));
+  await page.reload();
+  await expect(page.locator(".app-theme-dark")).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();

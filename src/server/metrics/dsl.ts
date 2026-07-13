@@ -136,6 +136,7 @@ export const measureSchema = z.union([
 export const metricDefinitionSchema = z
   .object({
     dataset: datasetSchema,
+    category: z.string().trim().min(1).max(80).default("Uncategorized"),
     source: metricSourceSchema.optional(),
     measure: measureSchema,
     filters: z.array(filterNodeSchema).max(20).default([]),

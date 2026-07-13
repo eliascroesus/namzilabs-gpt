@@ -2,6 +2,7 @@ import { GitMerge, LockKeyhole, ShieldCheck } from "lucide-react";
 import { and, count, eq } from "drizzle-orm";
 
 import { getDb } from "@/db/client";
+import { ThemeSettings } from "@/components/theme-settings";
 import { identityReviewQueue, organizations } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { roleRank } from "@/server/auth/authorization";
@@ -40,6 +41,7 @@ export default async function SettingsPage() {
         Timezone, identity review and data permissions.
       </p>
       <div className="mt-7 grid gap-4 lg:grid-cols-2">
+        <ThemeSettings />
         <section className="shell-card p-5">
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-lg bg-[var(--brand-soft)] text-[var(--brand)]">
