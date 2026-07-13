@@ -153,13 +153,16 @@ export const googleSheetsConnector: Connector = {
   },
 
   async authorize(context) {
-    const state = credential(context, "oauthState");
-    const config = env();
+  const state = credential(context, "oauthState");
+  const challenge = credential(context, "pkceChallenge");
+  const config = env();
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.search = new URLSearchParams({
       client_id: config.GOOGLE_CLIENT_ID ?? "",
       redirect_uri: config.GOOGLE_REDIRECT_URI,
       response_type: "code",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
       scope:
         "https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets.readonly",
       access_type: "offline",
