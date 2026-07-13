@@ -65,14 +65,29 @@ describe("prototype password proxy", () => {
     expect(proxy(request).status).toBe(200);
   });
 
-  it("keeps the origin check on protected mutation APIs", () => {
+  it("allows same-origin protected mutations on the hostname serving the app", () => {
     process.env.APP_ENV = "production";
     process.env.APP_URL = "https://namzilabs.co";
-    const request = new NextRequest("https://namzilabs-preview.vercel.app/api/connections", {
+    const session = createPrototypeSession(process.env.APP_PASSWORD!);
+    const request = new NextRequest("https://www.namzilabs.co/api/connections", {
       method: "POST",
       headers: {
-        origin: "https://namzilabs-preview.vercel.app",
+        cookie: `${prototypeSessionCookieName}=${session}`,
+        origin: "https://www.namzilabs.co",
         "sec-fetch-site": "same-origin",
+      },
+    });
+
+    expect(proxy(request).status).toBe(200);
+  });
+
+  it("keeps the origin check on cross-site protected mutations", () => {
+    process.env.APP_ENV = "production";
+    const request = new NextRequest("https://www.namzilabs.co/api/connections", {
+      method: "POST",
+      headers: {
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
       },
     });
 
