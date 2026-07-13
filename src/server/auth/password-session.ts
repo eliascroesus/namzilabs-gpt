@@ -1,16 +1,44 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, scryptSync, timingSafeEqual } from "node:crypto";
 
 export const prototypeSessionCookieName = "namzi_prototype_session";
 export const prototypeSessionMaxAgeSeconds = 7 * 24 * 60 * 60;
 
+const keyLength = 32;
+const scryptOptions = {
+  N: 1 << 15,
+  r: 8,
+  p: 1,
+  maxmem: 64 * 1024 * 1024,
+} as const;
+
+let cachedSessionPassword: string | undefined;
+let cachedSessionKey: Buffer | undefined;
+
+function derivePasswordKey(
+  password: string,
+  purpose: "password-check" | "session-signing",
+): Buffer {
+  return scryptSync(password, `namzi-password-wall:${purpose}:v1`, keyLength, scryptOptions);
+}
+
+function sessionKey(password: string): Buffer {
+  if (cachedSessionPassword !== password || !cachedSessionKey) {
+    cachedSessionPassword = password;
+    cachedSessionKey = derivePasswordKey(password, "session-signing");
+  }
+  return cachedSessionKey;
+}
+
 function sessionSignature(password: string, issuedAt: number): Buffer {
-  return createHmac("sha256", password).update(`namzi-password-wall:v1:${issuedAt}`).digest();
+  return createHmac("sha256", sessionKey(password))
+    .update(`namzi-password-wall:v1:${issuedAt}`)
+    .digest();
 }
 
 export function passwordMatches(candidate: string, expected: string): boolean {
-  const candidateHash = createHash("sha256").update(candidate).digest();
-  const expectedHash = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(candidateHash, expectedHash);
+  const candidateKey = derivePasswordKey(candidate, "password-check");
+  const expectedKey = derivePasswordKey(expected, "password-check");
+  return timingSafeEqual(candidateKey, expectedKey);
 }
 
 export function createPrototypeSession(password: string, now = Date.now()): string {

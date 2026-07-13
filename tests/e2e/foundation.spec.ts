@@ -43,7 +43,9 @@ test("metric builder reaches the real-data preview boundary without fixture valu
   page,
 }) => {
   await login(page, "/metrics/new");
+  await expect(page.getByRole("heading", { name: "Choose a canonical activity" })).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Choose a calculation" })).toBeVisible();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Choose optional grouping" })).toBeVisible();
   await expect(page.getByRole("button", { name: /preview real data/i })).toBeVisible();
@@ -57,7 +59,7 @@ test("password wall rejects the wrong password, authenticates, and logs out", as
   await page.goto("/metrics/new");
   await page.getByLabel("Prototype password").fill("wrong-password");
   await page.getByRole("button", { name: "Open workspace" }).click();
-  await expect(page.getByRole("alert")).toContainText("incorrect");
+  await expect(page.getByText("The password was incorrect.", { exact: true })).toBeVisible();
   await page.getByLabel("Prototype password").fill("prototype-test-password");
   await page.getByRole("button", { name: "Open workspace" }).click();
   await expect(page.getByRole("heading", { name: "Build a metric" })).toBeVisible();

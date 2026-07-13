@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 
 const steps = ["Measure", "Calculate", "Organize", "Preview", "Save"];
 const activityOptions = [
@@ -15,7 +15,14 @@ const activityOptions = [
 ] as const;
 type Calculation = "count" | "distinct_count" | "sum";
 
+const subscribeToHydration = () => () => undefined;
+
 export function MetricBuilder() {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const [step, setStep] = useState(0);
   const [activity, setActivity] = useState("meeting.booked");
   const [calculation, setCalculation] = useState<Calculation>("count");
@@ -29,6 +36,7 @@ export function MetricBuilder() {
   const [working, setWorking] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const definition = useMemo(
     () => ({
       dataset: "activity_facts",
@@ -259,7 +267,8 @@ export function MetricBuilder() {
           <button
             type="button"
             onClick={() => setStep((value) => value + 1)}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white"
+            disabled={!hydrated}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
             Continue <ArrowRight size={15} />
           </button>
