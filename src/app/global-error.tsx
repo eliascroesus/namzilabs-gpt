@@ -1,18 +1,11 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
-import { useEffect } from "react";
-
 export default function GlobalError({
-  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    Sentry.captureException(error);
-  }, [error]);
   return (
     <html lang="en">
       <body>
@@ -20,7 +13,8 @@ export default function GlobalError({
           <div className="shell-card max-w-md p-8 text-center">
             <h1 className="text-xl font-bold">Something went wrong</h1>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              The error was recorded without connection secrets or raw payload data.
+              The request could not be completed. Try again, and contact support if the problem
+              continues.
             </p>
             <button
               onClick={reset}

@@ -2,7 +2,6 @@ packages:
   - "."
 
 allowBuilds:
-  "@sentry/cli": true
   esbuild: true
   protobufjs: true
   sharp: true

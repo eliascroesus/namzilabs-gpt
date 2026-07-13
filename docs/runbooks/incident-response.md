@@ -2,8 +2,8 @@
 
 ## Ownership
 
-Before the first customer, name a primary incident commander and a backup. Configure Sentry,
-Inngest, Vercel and Neon alerts to reach both. Every alert must link to this runbook and include the
+Before the first customer, name a primary incident commander and a backup. Configure Inngest,
+Vercel and Neon alerts to reach both. Every alert must link to this runbook and include the
 environment, request/run identifier, affected connector and a sanitized error code.
 
 ## Severity
@@ -18,7 +18,7 @@ environment, request/run identifier, affected connector and a sanitized error co
 
 1. Acknowledge the alert, assign commander/scribe and record UTC start time.
 2. Confirm production versus preview; never paste tokens, payloads or connection strings into chat.
-3. Preserve request IDs, Inngest run IDs, Sentry event IDs and relevant audit-log identifiers.
+3. Preserve request IDs, Inngest run IDs, Vercel log references and relevant audit-log identifiers.
 4. For suspected tenant or secret exposure, stop the affected connector/version or production path,
    rotate the credential and preserve evidence before cleanup.
 5. For queue growth, stop new fan-out if needed but keep immutable raw events and outbox rows.

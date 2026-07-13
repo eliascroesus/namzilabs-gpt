@@ -72,7 +72,7 @@ GOOGLE_CLIENT_SECRET=<Google OAuth web client secret>
 GOOGLE_REDIRECT_URI=https://namzilabs.co/api/integrations/google/callback
 ```
 
-Optional provider and monitoring values are listed in `.env.example`.
+Optional provider values are listed in `.env.example`.
 
 Keep `DATABASE_DIRECT_URL` only in the local/CI migration environment. Do not expose the direct migration credential to Vercel Functions.
 
