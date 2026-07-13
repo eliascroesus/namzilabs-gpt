@@ -2,7 +2,12 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 
 import { bearerHeaders, providerFetch } from "@/connectors/http";
-import { credential, defaultNormalizedRecord, webhookJson } from "@/connectors/shared";
+import {
+  credential,
+  defaultNormalizedRecord,
+  webhookJson,
+  webhookTimestampIsFresh,
+} from "@/connectors/shared";
 import { jsonObjectSchema, type Connector } from "@/connectors/types";
 import { constantTimeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -141,7 +146,7 @@ export const closeConnector: Connector = {
     const timestamp = webhook.headers.get("close-sig-timestamp");
     const keyHex = context.credentials.webhookSigningKey;
     if (!hash || !timestamp || !keyHex) return false;
-    if (Math.abs(Date.now() / 1_000 - Number(timestamp)) > 300) return false;
+    if (!webhookTimestampIsFresh(timestamp, 300)) return false;
     const expected = createHmac("sha256", Buffer.from(keyHex, "hex"))
       .update(timestamp + webhook.rawBody)
       .digest("hex");

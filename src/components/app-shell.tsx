@@ -1,9 +1,17 @@
 "use client";
 
-import { Blocks, ChartNoAxesCombined, Database, Gauge, Settings, Sparkles } from "lucide-react";
+import {
+  Blocks,
+  ChartNoAxesCombined,
+  Database,
+  Gauge,
+  LogOut,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 const navigation = [
   { label: "Overview", href: "/overview", icon: Gauge },
@@ -16,6 +24,16 @@ const navigation = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOut() {
+    setSigningOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.assign("/");
+    }
+  }
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="border-b border-[var(--line)] bg-white px-4 py-4 lg:border-b-0 lg:border-r lg:py-5">
@@ -53,6 +71,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-8 hidden rounded-xl border border-[var(--line)] bg-slate-50 p-3 text-xs leading-5 text-[var(--muted)] lg:block">
           Every metric is deterministic, versioned and traceable to its source records.
         </div>
+        <button
+          type="button"
+          onClick={signOut}
+          disabled={signingOut}
+          className="mt-4 inline-flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
+        >
+          <LogOut size={17} aria-hidden="true" /> {signingOut ? "Signing out…" : "Log out"}
+        </button>
       </aside>
       <main className="min-w-0 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">{children}</main>
     </div>

@@ -1,0 +1,6 @@
+{
+  "message-id": "brevo_fixture_1",
+  "event": "delivered",
+  "ts_event": 1783850400,
+  "email": "person@example.test"
+}

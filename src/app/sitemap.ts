@@ -11,5 +11,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.5,
     },
     { url: "https://namzilabs.co/terms", lastModified, changeFrequency: "monthly", priority: 0.5 },
+    {
+      url: "https://namzilabs.co/subprocessors",
+      lastModified,
+      changeFrequency: "monthly",
+      priority: 0.4,
+    },
   ];
 }

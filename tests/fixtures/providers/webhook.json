@@ -1,0 +1,6 @@
+{
+  "id": "evt_fixture_1",
+  "type": "lead.created",
+  "createdAt": "2026-07-12T10:00:00Z",
+  "email": "person@example.test"
+}

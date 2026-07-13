@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { connectors } from "@/connectors/registry";
+import type { ConnectorContext } from "@/connectors/types";
 
 const methods = [
   "authorize",
@@ -49,4 +51,24 @@ describe("connector contract", () => {
     const instantly = connectors.find((connector) => connector.manifest.id === "instantly");
     expect(instantly?.manifest.apiVersion).toBe("v2");
   });
+
+  it.each(connectors.map((connector) => [connector.manifest.id, connector] as const))(
+    "%s normalizes its sanitized contract fixture without live customer data",
+    async (id, connector) => {
+      const raw = readFileSync(`tests/fixtures/providers/${id}.json`, "utf8");
+      expect(raw).not.toMatch(/authorization|refresh_token|api[_-]?key/i);
+      const record = JSON.parse(raw) as Record<string, unknown>;
+      const context: ConnectorContext = {
+        organizationId: "00000000-0000-4000-8000-000000000001",
+        connectionId: "00000000-0000-4000-8000-000000000002",
+        callbackUrl: "https://example.test/webhook",
+        credentials: {},
+        configuration:
+          id === "google-sheets" ? { uniqueKeyColumn: "Lead ID", syncMode: "upsert" } : {},
+      };
+      const normalized = await connector.normalizeRecord(context, record, "fixture.changed");
+      expect(normalized.externalId).not.toBe("");
+      expect(normalized.data).toEqual(record);
+    },
+  );
 });

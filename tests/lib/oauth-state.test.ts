@@ -35,4 +35,15 @@ describe("OAuth state", () => {
     const sealed = sealOAuthState(state);
     expect(() => openOAuthState(`${sealed.slice(0, -2)}aa`)).toThrow("OAuth state is invalid");
   });
+
+  it("rejects an otherwise valid expired state", () => {
+    const state = createOAuthState(
+      "google-sheets",
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+    );
+    expect(() => openOAuthState(sealOAuthState({ ...state, expiresAt: Date.now() - 1 }))).toThrow(
+      "OAuth state expired",
+    );
+  });
 });

@@ -2,7 +2,12 @@ import { createHmac } from "node:crypto";
 
 import { constantTimeEqual, sha256 } from "@/lib/crypto";
 import { AppError } from "@/lib/errors";
-import { defaultNormalizedRecord, randomSecret, webhookJson } from "@/connectors/shared";
+import {
+  defaultNormalizedRecord,
+  randomSecret,
+  webhookJson,
+  webhookTimestampIsFresh,
+} from "@/connectors/shared";
 import type {
   AuthorizationResult,
   BackfillPage,
@@ -94,13 +99,27 @@ export const webhookConnector: Connector = {
   async verifyWebhook(context, webhook) {
     const secret = context.credentials.webhookSecret;
     if (!secret) return false;
+    const timestamp = webhook.headers.get("x-namzi-timestamp");
+    const tolerance = Number(context.configuration.webhookToleranceSeconds ?? 300);
+    if (
+      context.configuration.requireTimestamp !== false &&
+      !webhookTimestampIsFresh(timestamp, Number.isFinite(tolerance) ? tolerance : 300)
+    ) {
+      return false;
+    }
     const suppliedSecret = webhook.headers.get("x-namzi-webhook-secret");
     if (suppliedSecret) return constantTimeEqual(secret, suppliedSecret);
 
     const signature = webhook.headers.get("x-namzi-signature")?.replace(/^sha256=/, "");
     if (!signature) return false;
-    const expected = createHmac("sha256", secret).update(webhook.rawBody).digest("hex");
-    return constantTimeEqual(expected, signature);
+    const signedBody = timestamp ? `${timestamp}.${webhook.rawBody}` : webhook.rawBody;
+    const expected = createHmac("sha256", secret).update(signedBody).digest("hex");
+    if (constantTimeEqual(expected, signature)) return true;
+    if (context.configuration.allowLegacySignature === true) {
+      const legacy = createHmac("sha256", secret).update(webhook.rawBody).digest("hex");
+      return constantTimeEqual(legacy, signature);
+    }
+    return false;
   },
 
   async parseWebhook(context, webhook): Promise<ParsedWebhookEvent[]> {
@@ -135,5 +154,5 @@ export const webhookConnector: Connector = {
 };
 
 export function genericWebhookCurl(callbackUrl: string, secret: string): string {
-  return `curl -X POST '${callbackUrl}' -H 'content-type: application/json' -H 'x-namzi-webhook-secret: ${secret}' -d '{"event":"example","id":"evt_123"}'`;
+  return `curl -X POST '${callbackUrl}' -H 'content-type: application/json' -H 'x-namzi-webhook-secret: ${secret}' -H "x-namzi-timestamp: $(date +%s)" -d '{"event":"example","id":"evt_123"}'`;
 }

@@ -26,6 +26,21 @@ export function verifyHmac(
   return constantTimeEqual(expected, supplied);
 }
 
+export function webhookTimestampIsFresh(
+  value: string | null,
+  toleranceSeconds = 300,
+  now = Date.now(),
+): boolean {
+  if (!value) return false;
+  const numeric = Number(value);
+  const parsed = Number.isFinite(numeric)
+    ? numeric > 10_000_000_000
+      ? numeric
+      : numeric * 1_000
+    : Date.parse(value);
+  return Number.isFinite(parsed) && Math.abs(now - parsed) <= toleranceSeconds * 1_000;
+}
+
 export function webhookJson(webhook: IncomingWebhook): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(webhook.rawBody);

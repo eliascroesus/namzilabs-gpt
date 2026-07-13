@@ -2,6 +2,7 @@
 
 import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import type { ConnectorManifest } from "@/connectors/types";
 import { Button } from "@/components/ui/button";
@@ -9,11 +10,17 @@ import { Button } from "@/components/ui/button";
 const steps = ["Connect", "Choose data", "Preview", "Identify fields", "Sync", "Review"];
 
 export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) {
+  const router = useRouter();
   const [step, setStep] = useState(0);
   const [apiKey, setApiKey] = useState("");
   const [uniqueKey, setUniqueKey] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [activation, setActivation] = useState<{
+    id: string;
+    webhookUrl?: string;
+    webhookSecret?: string;
+  } | null>(null);
   const needsApiKey = manifest.authType === "api-key";
   const progress = useMemo(() => `${Math.round(((step + 1) / steps.length) * 100)}%`, [step]);
 
@@ -44,6 +51,55 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
       setConnectionError(
         error instanceof Error ? error.message : "The connection could not start.",
       );
+      setConnecting(false);
+    }
+  }
+
+  async function activateConnection() {
+    setConnecting(true);
+    setConnectionError(null);
+    try {
+      const response = await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: manifest.id,
+          name: `${manifest.name} connection`,
+          ...(needsApiKey ? { apiKey } : {}),
+          configuration:
+            manifest.id === "webhook"
+              ? {
+                  eventIdPath: "id",
+                  eventTypePath: "type",
+                  eventTimePath: "createdAt",
+                  requireTimestamp: true,
+                  webhookToleranceSeconds: 300,
+                }
+              : {},
+        }),
+      });
+      const result = (await response.json()) as {
+        data?: { id?: string; webhookUrl?: string; webhookSecret?: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !result.data?.id) {
+        throw new Error(result.error?.message ?? "The connection could not be activated.");
+      }
+      if (manifest.id === "webhook") {
+        setActivation({
+          id: result.data.id,
+          webhookUrl: result.data.webhookUrl,
+          webhookSecret: result.data.webhookSecret,
+        });
+      } else {
+        router.push(`/integrations/${result.data.id}`);
+        router.refresh();
+      }
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? error.message : "The connection could not be activated.",
+      );
+    } finally {
       setConnecting(false);
     }
   }
@@ -251,13 +307,34 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
                 </div>
               ))}
             </div>
-            {manifest.id === "webhook" ? (
+            {activation ? (
+              <div className="mt-5 rounded-xl bg-slate-950 p-4 text-xs text-slate-200">
+                <p className="font-semibold text-white">Copy this secret now. It is shown once.</p>
+                <p className="mt-3 break-all font-mono">{activation.webhookUrl}</p>
+                <p className="mt-2 break-all font-mono">{activation.webhookSecret}</p>
+                <p className="mt-3 text-slate-400">
+                  Send x-namzi-timestamp with each request. HMAC signatures bind the timestamp and
+                  raw body and expire after five minutes.
+                </p>
+              </div>
+            ) : manifest.id === "webhook" ? (
               <div className="mt-5 flex items-center justify-between rounded-xl bg-slate-950 p-4 text-xs text-slate-200">
-                <code>Endpoint is generated after activation</code>
+                <code>Endpoint and one-time secret are generated after activation</code>
                 <Copy size={15} />
               </div>
             ) : null}
-            <Button className="mt-6">Activate connection</Button>
+            {activation ? (
+              <Button
+                className="mt-6"
+                onClick={() => router.push(`/integrations/${activation.id}`)}
+              >
+                Open connection <ChevronRight size={16} />
+              </Button>
+            ) : (
+              <Button className="mt-6" onClick={activateConnection} disabled={connecting}>
+                {connecting ? "Activating…" : "Activate connection"}
+              </Button>
+            )}
           </div>
         ) : null}
       </section>
@@ -271,7 +348,13 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
           <ChevronLeft size={16} /> Back
         </Button>
         {step < steps.length - 1 ? (
-          <Button onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>
+          <Button
+            disabled={
+              (needsApiKey && step === 0 && apiKey.length < 8) ||
+              (manifest.authType === "oauth2" && step === 0)
+            }
+            onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}
+          >
             Continue <ChevronRight size={16} />
           </Button>
         ) : null}

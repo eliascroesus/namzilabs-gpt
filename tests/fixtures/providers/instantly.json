@@ -1,0 +1,6 @@
+{
+  "id": "inst_fixture_1",
+  "event_type": "email_sent",
+  "timestamp": "2026-07-12T10:00:00Z",
+  "lead_email": "person@example.test"
+}

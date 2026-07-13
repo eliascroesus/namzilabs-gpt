@@ -2,7 +2,12 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 
 import { bearerHeaders, providerFetch } from "@/connectors/http";
-import { credential, defaultNormalizedRecord, webhookJson } from "@/connectors/shared";
+import {
+  credential,
+  defaultNormalizedRecord,
+  webhookJson,
+  webhookTimestampIsFresh,
+} from "@/connectors/shared";
 import { jsonObjectSchema, type Connector } from "@/connectors/types";
 import { constantTimeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -131,7 +136,7 @@ export const calendlyConnector: Connector = {
     if (!header || !secret) return false;
     const parts = Object.fromEntries(header.split(",").map((part) => part.trim().split("=", 2)));
     if (!parts.t || !parts.v1) return false;
-    if (Math.abs(Date.now() / 1_000 - Number(parts.t)) > 300) return false;
+    if (!webhookTimestampIsFresh(parts.t, 300)) return false;
     const expected = createHmac("sha256", secret)
       .update(`${parts.t}.${webhook.rawBody}`)
       .digest("hex");

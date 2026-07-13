@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { assertOrganization, type TenantContext } from "@/server/auth/authorization";
@@ -20,9 +20,11 @@ describe("tenant isolation and event ordering", () => {
   });
 
   it("has RLS policies for every tenant-owned table", () => {
-    const migration = readFileSync("drizzle/0001_tenant_rls.sql", "utf8");
+    const migration = readdirSync("drizzle")
+      .filter((file) => file.endsWith(".sql"))
+      .map((file) => readFileSync(`drizzle/${file}`, "utf8"))
+      .join("\n");
     for (const table of [
-      "memberships",
       "connections",
       "encrypted_credentials",
       "connection_resources",
@@ -38,6 +40,15 @@ describe("tenant isolation and event ordering", () => {
       "activity_facts",
       "dead_letter_events",
       "audit_logs",
+      "identity_review_queue",
+      "identity_rules",
+      "metrics",
+      "metric_versions",
+      "dashboards",
+      "dashboard_cards",
+      "goals",
+      "export_jobs",
+      "operational_measurements",
     ]) {
       expect(migration).toContain(`CREATE POLICY "${table}_tenant_policy"`);
     }

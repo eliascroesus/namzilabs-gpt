@@ -1,6 +1,6 @@
 # Namzi Data
 
-Production-oriented Phase 1 foundation for a multi-tenant SaaS data aggregation platform. It is a modular Next.js monolith with a strict connector contract, immutable raw event storage, atomic outbox delivery, durable Inngest workflows, Neon/Drizzle persistence, and WorkOS organization sessions.
+Production-oriented foundation for a multi-tenant SaaS data aggregation platform. It is a modular Next.js monolith with a strict connector contract, immutable raw event storage, atomic outbox delivery, durable Inngest workflows and Neon/Drizzle persistence. The current prototype uses a shared password wall; it is not a customer identity system.
 
 ## Local setup
 
@@ -9,12 +9,12 @@ Production-oriented Phase 1 foundation for a multi-tenant SaaS data aggregation 
 3. Create separate Neon development and production branches.
 4. Put the pooled Neon URL in `DATABASE_URL` and the direct URL in `DATABASE_DIRECT_URL`.
 5. Generate a 32-byte credential encryption key: `openssl rand -base64 32`.
-6. Configure WorkOS, Inngest and provider application credentials.
+6. Set `APP_PASSWORD`, provision the prototype organization, and configure Inngest and provider application credentials.
 7. Run `pnpm db:migrate`, then `pnpm dev`.
 
 For the production GitHub → Neon → Vercel → `namzilabs.co` sequence, use the [deployment runbook](docs/deployment.md).
 
-Production deliberately fails closed if database, encryption, WorkOS or Inngest configuration is missing. Local and test environments use the explicit `DEV_*` identity only when WorkOS is not configured.
+Production deliberately fails closed if database, encryption, the prototype password, Inngest or required Google configuration is missing. `APP_ORGANIZATION_ID`, `APP_USER_ID` and `APP_ROLE` define the single prototype identity used after the password cookie is verified.
 
 ## Data guarantees
 

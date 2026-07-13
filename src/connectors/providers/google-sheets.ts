@@ -2,9 +2,15 @@ import { z } from "zod";
 
 import { bearerHeaders, providerFetch } from "@/connectors/http";
 import { credential, defaultNormalizedRecord, subscriptionId } from "@/connectors/shared";
-import type { Connector, ConnectorContext, IncomingWebhook } from "@/connectors/types";
+import type {
+  BackfillPage,
+  Connector,
+  ConnectorContext,
+  IncomingWebhook,
+} from "@/connectors/types";
 import { constantTimeEqual, sha256 } from "@/lib/crypto";
 import { env } from "@/lib/env";
+import { AppError } from "@/lib/errors";
 
 const driveFilesSchema = z.object({
   files: z
@@ -34,6 +40,93 @@ function rowsToObjects(values: (string | number | boolean | null)[][]): Record<s
   return rows.map((row) =>
     Object.fromEntries(headers.map((header, index) => [String(header), row[index] ?? null])),
   );
+}
+
+export type SheetPagePlan = {
+  headerRange: string;
+  dataRange: string;
+  dataStartRow: number;
+  dataEndRow: number;
+  nextCursorCandidate: string | null;
+};
+
+export function planSheetPage(
+  configuredRange: string,
+  cursor?: string,
+  pageSize = 500,
+): SheetPagePlan {
+  const boundedPageSize = Math.min(1_000, Math.max(1, Math.trunc(pageSize)));
+  const separator = configuredRange.lastIndexOf("!");
+  const sheetPrefix = separator >= 0 ? configuredRange.slice(0, separator + 1) : "";
+  const cells = (
+    separator >= 0 ? configuredRange.slice(separator + 1) : configuredRange
+  ).replaceAll("$", "");
+  const match = /^([A-Za-z]+)(\d*):([A-Za-z]+)(\d*)$/.exec(cells.trim());
+  if (!match) {
+    throw new AppError(
+      "invalid_sheet_range",
+      "Use an A1 column range such as Leads!A:Z or Leads!A1:Z5000.",
+      400,
+    );
+  }
+  const [, startColumn, configuredStart, endColumn, configuredEnd] = match;
+  const headerRow = configuredStart ? Number(configuredStart) : 1;
+  const maximumRow = configuredEnd ? Number(configuredEnd) : Number.MAX_SAFE_INTEGER;
+  const cursorRow = cursor ? Number(cursor) : headerRow + 1;
+  if (
+    !Number.isSafeInteger(headerRow) ||
+    !Number.isSafeInteger(maximumRow) ||
+    !Number.isSafeInteger(cursorRow) ||
+    headerRow < 1 ||
+    cursorRow <= headerRow ||
+    maximumRow < headerRow
+  ) {
+    throw new AppError("invalid_sheet_cursor", "The Google Sheets cursor is invalid.", 400);
+  }
+  const dataEndRow = Math.min(maximumRow, cursorRow + boundedPageSize - 1);
+  return {
+    headerRange: `${sheetPrefix}${startColumn}${headerRow}:${endColumn}${headerRow}`,
+    dataRange: `${sheetPrefix}${startColumn}${cursorRow}:${endColumn}${dataEndRow}`,
+    dataStartRow: cursorRow,
+    dataEndRow,
+    nextCursorCandidate: dataEndRow < maximumRow ? String(dataEndRow + 1) : null,
+  };
+}
+
+async function sheetValues(
+  context: ConnectorContext,
+  spreadsheetId: string,
+  range: string,
+): Promise<(string | number | boolean | null)[][]> {
+  const response = await providerFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: bearerHeaders(accessToken(context)) },
+    sheetsSchema,
+  );
+  return response.values;
+}
+
+async function fetchSheetPage(
+  context: ConnectorContext,
+  cursor: string | undefined,
+  pageSize: number,
+): Promise<BackfillPage> {
+  const spreadsheetId = String(context.configuration.spreadsheetId ?? "");
+  const configuredRange = String(context.configuration.range ?? "A:Z");
+  if (!spreadsheetId) {
+    throw new AppError("spreadsheet_required", "Select a Google spreadsheet first.", 400);
+  }
+  const plan = planSheetPage(configuredRange, cursor, pageSize);
+  const [headerValues, dataValues] = await Promise.all([
+    sheetValues(context, spreadsheetId, plan.headerRange),
+    sheetValues(context, spreadsheetId, plan.dataRange),
+  ]);
+  const headers = headerValues[0];
+  if (!headers) return { records: [], nextCursor: null, highWatermark: new Date().toISOString() };
+  const records = rowsToObjects([headers, ...dataValues]);
+  const requestedRows = plan.dataEndRow - plan.dataStartRow + 1;
+  const nextCursor = dataValues.length < requestedRows ? null : plan.nextCursorCandidate;
+  return { records, nextCursor, highWatermark: new Date().toISOString() };
 }
 
 async function startPageToken(context: ConnectorContext): Promise<string> {
@@ -105,23 +198,18 @@ export const googleSheetsConnector: Connector = {
   },
 
   async fetchSample(context, limit) {
-    const spreadsheetId = String(context.configuration.spreadsheetId ?? "");
-    const range = encodeURIComponent(String(context.configuration.range ?? "A:Z"));
-    const response = await providerFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}?majorDimension=ROWS`,
-      { headers: bearerHeaders(accessToken(context)) },
-      sheetsSchema,
-    );
-    return rowsToObjects(response.values).slice(0, limit);
+    const page = await fetchSheetPage(context, undefined, limit);
+    return page.records.slice(0, limit);
   },
 
-  async startBackfill(context) {
-    const records = await this.fetchSample(context, 3);
-    return { records, nextCursor: null, highWatermark: new Date().toISOString() };
+  async startBackfill(context, cursor) {
+    const requestedPageSize = Number(context.configuration.pageSize ?? 500);
+    const pageSize = Number.isFinite(requestedPageSize) ? requestedPageSize : 500;
+    return fetchSheetPage(context, cursor, pageSize);
   },
 
-  async continueBackfill(context) {
-    return this.startBackfill(context);
+  async continueBackfill(context, cursor) {
+    return this.startBackfill(context, cursor);
   },
 
   async createSubscription(context) {

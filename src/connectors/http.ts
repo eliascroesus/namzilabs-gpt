@@ -4,7 +4,7 @@ import { AppError } from "@/lib/errors";
 
 const MAX_ATTEMPTS = 5;
 
-function retryDelay(attempt: number, retryAfter: string | null): number {
+export function retryDelay(attempt: number, retryAfter: string | null): number {
   if (retryAfter) {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds)) return Math.min(seconds * 1_000, 60_000);
@@ -22,12 +22,49 @@ export async function providerFetch<T>(
   attempts = MAX_ATTEMPTS,
 ): Promise<T> {
   let lastStatus = 0;
+  const providerHost = new URL(url).hostname;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const response = await fetch(url, init);
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch {
+      if (attempt === attempts - 1) {
+        throw new AppError(
+          "provider_unavailable",
+          "The provider could not be reached after multiple attempts.",
+          502,
+          { providerHost },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay(attempt, null)));
+      continue;
+    }
     lastStatus = response.status;
     if (response.ok) {
-      const json: unknown = response.status === 204 ? {} : await response.json();
-      return schema.parse(json);
+      let json: unknown;
+      try {
+        json = response.status === 204 ? {} : await response.json();
+      } catch {
+        throw new AppError(
+          "provider_schema_changed",
+          "The provider returned a response that was not valid JSON.",
+          502,
+          { providerHost },
+        );
+      }
+      const parsed = schema.safeParse(json);
+      if (!parsed.success) {
+        throw new AppError(
+          "provider_schema_changed",
+          "The provider response no longer matches the supported contract.",
+          502,
+          {
+            providerHost,
+            issues: parsed.error.issues.slice(0, 10).map(({ path, code }) => ({ path, code })),
+          },
+        );
+      }
+      return parsed.data;
     }
 
     const shouldRetry = response.status === 429 || response.status >= 500;

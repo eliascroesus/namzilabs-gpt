@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 
 import { getConnector } from "@/connectors/registry";
 import type { Database } from "@/db/client";
 import {
+  activityFacts,
   connections,
   sourceRecords,
   syncCursors,
@@ -11,6 +12,7 @@ import {
 } from "@/db/schema";
 import { AppError } from "@/lib/errors";
 import { asProviderId, connectorContext } from "@/server/connections/service";
+import { recordMeasurementSafely } from "@/server/operations/service";
 
 export function shouldRenewSubscription(
   expiresAt: Date | string | null,
@@ -22,8 +24,13 @@ export function shouldRenewSubscription(
 
 export async function reconcilePage(
   db: Database,
-  input: { connectionId: string; cursor?: string; callbackUrl: string },
-): Promise<{ nextCursor: string | null; recordsWritten: number }> {
+  input: { connectionId: string; cursor?: string; runId?: string; callbackUrl: string },
+): Promise<{
+  nextCursor: string | null;
+  recordsWritten: number;
+  recordsDeleted: number;
+  runId: string;
+}> {
   const [connection] = await db
     .select()
     .from(connections)
@@ -32,104 +39,303 @@ export async function reconcilePage(
   if (!connection || connection.status === "revoked") {
     throw new AppError("connection_not_found", "Connection not found.", 404);
   }
-  const connector = getConnector(asProviderId(connection.provider));
-  const context = await connectorContext(db, connection, input.callbackUrl);
-  const [run] = await db
-    .insert(syncRuns)
-    .values({
-      organizationId: connection.organizationId,
-      connectionId: connection.id,
-      kind: input.cursor ? "incremental" : "reconciliation",
-      status: "running",
-      cursorStart: input.cursor,
-      startedAt: new Date(),
-    })
-    .returning({ id: syncRuns.id });
-  const page = input.cursor
-    ? await connector.continueBackfill(context, input.cursor)
-    : await connector.startBackfill(context);
-  let written = 0;
-  await db.transaction(async (tx) => {
-    for (const record of page.records) {
-      const normalized = await connector.normalizeRecord(context, record);
-      const incomingUpdatedAt = normalized.sourceUpdatedAt
-        ? new Date(normalized.sourceUpdatedAt)
-        : undefined;
-      await tx
-        .insert(sourceRecords)
+  const [existingRun] = input.runId
+    ? await db
+        .select()
+        .from(syncRuns)
+        .where(
+          and(
+            eq(syncRuns.id, input.runId),
+            eq(syncRuns.connectionId, connection.id),
+            eq(syncRuns.organizationId, connection.organizationId),
+          ),
+        )
+        .limit(1)
+    : [];
+  const [createdRun] = existingRun
+    ? []
+    : await db
+        .insert(syncRuns)
         .values({
           organizationId: connection.organizationId,
           connectionId: connection.id,
-          resourceType: normalized.resourceType,
-          externalId: normalized.externalId,
-          sourceVersion: normalized.sourceVersion,
-          sourceUpdatedAt: incomingUpdatedAt,
-          occurredAt: normalized.occurredAt ? new Date(normalized.occurredAt) : undefined,
-          isDeleted: normalized.isDeleted,
-          data: normalized.data,
-          mappingVersion: connector.manifest.mappingVersion,
+          kind: input.cursor ? "incremental" : "reconciliation",
+          status: "running",
+          cursorStart: input.cursor,
+          startedAt: new Date(),
         })
-        .onConflictDoUpdate({
-          target: [
-            sourceRecords.organizationId,
-            sourceRecords.connectionId,
-            sourceRecords.resourceType,
-            sourceRecords.externalId,
-          ],
-          set: {
+        .returning();
+  const run = existingRun ?? createdRun;
+  if (!run || !["running", "failed"].includes(run.status) || !run.startedAt) {
+    throw new AppError("sync_run_not_found", "The reconciliation run is not available.", 409);
+  }
+  const runStartedAt = run.startedAt;
+  if (run.status === "failed") {
+    await db
+      .update(syncRuns)
+      .set({
+        status: "running",
+        errorCode: null,
+        errorMessage: null,
+        completedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(syncRuns.id, run.id));
+  }
+
+  const connector = getConnector(asProviderId(connection.provider));
+  try {
+    const context = await connectorContext(db, connection, input.callbackUrl);
+    const page = input.cursor
+      ? await connector.continueBackfill(context, input.cursor)
+      : await connector.startBackfill(context);
+    let written = 0;
+    let deleted = 0;
+    await db.transaction(async (tx) => {
+      for (const record of page.records) {
+        const normalized = await connector.normalizeRecord(context, record);
+        const incomingUpdatedAt = normalized.sourceUpdatedAt
+          ? new Date(normalized.sourceUpdatedAt)
+          : undefined;
+        const [sourceRecord] = await tx
+          .insert(sourceRecords)
+          .values({
+            organizationId: connection.organizationId,
+            connectionId: connection.id,
+            resourceType: normalized.resourceType,
+            externalId: normalized.externalId,
             sourceVersion: normalized.sourceVersion,
             sourceUpdatedAt: incomingUpdatedAt,
             occurredAt: normalized.occurredAt ? new Date(normalized.occurredAt) : undefined,
+            displayName: normalized.promoted?.displayName,
+            normalizedEmail: normalized.promoted?.normalizedEmail,
+            normalizedPhone: normalized.promoted?.normalizedPhone,
+            status: normalized.promoted?.status,
+            ownerExternalId: normalized.promoted?.ownerExternalId,
+            campaignExternalId: normalized.promoted?.campaignExternalId,
+            amount: normalized.promoted?.amount,
+            currency: normalized.promoted?.currency,
             isDeleted: normalized.isDeleted,
             data: normalized.data,
             mappingVersion: connector.manifest.mappingVersion,
+          })
+          .onConflictDoUpdate({
+            target: [
+              sourceRecords.organizationId,
+              sourceRecords.connectionId,
+              sourceRecords.resourceType,
+              sourceRecords.externalId,
+            ],
+            set: {
+              sourceVersion: normalized.sourceVersion,
+              sourceUpdatedAt: incomingUpdatedAt,
+              occurredAt: normalized.occurredAt ? new Date(normalized.occurredAt) : undefined,
+              displayName: normalized.promoted?.displayName,
+              normalizedEmail: normalized.promoted?.normalizedEmail,
+              normalizedPhone: normalized.promoted?.normalizedPhone,
+              status: normalized.promoted?.status,
+              ownerExternalId: normalized.promoted?.ownerExternalId,
+              campaignExternalId: normalized.promoted?.campaignExternalId,
+              amount: normalized.promoted?.amount,
+              currency: normalized.promoted?.currency,
+              isDeleted: normalized.isDeleted,
+              data: normalized.data,
+              mappingVersion: connector.manifest.mappingVersion,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({ id: sourceRecords.id });
+        if (normalized.activity && sourceRecord) {
+          await tx
+            .insert(activityFacts)
+            .values({
+              organizationId: connection.organizationId,
+              connectionId: connection.id,
+              sourceRecordId: sourceRecord.id,
+              activityType: normalized.activity.type,
+              externalId: normalized.activity.externalId,
+              occurredAt: new Date(normalized.activity.occurredAt),
+              status: normalized.activity.promoted?.status,
+              channel: normalized.activity.promoted?.channel,
+              ownerId: normalized.activity.promoted?.ownerId,
+              amount: normalized.activity.promoted?.amount,
+              durationSeconds: normalized.activity.promoted?.durationSeconds,
+              dimensions: normalized.activity.dimensions,
+              measures: normalized.activity.measures ?? {},
+              isDeleted: normalized.isDeleted,
+            })
+            .onConflictDoUpdate({
+              target: [
+                activityFacts.organizationId,
+                activityFacts.connectionId,
+                activityFacts.activityType,
+                activityFacts.externalId,
+              ],
+              set: {
+                occurredAt: new Date(normalized.activity.occurredAt),
+                status: normalized.activity.promoted?.status,
+                channel: normalized.activity.promoted?.channel,
+                ownerId: normalized.activity.promoted?.ownerId,
+                amount: normalized.activity.promoted?.amount,
+                durationSeconds: normalized.activity.promoted?.durationSeconds,
+                dimensions: normalized.activity.dimensions,
+                measures: normalized.activity.measures ?? {},
+                isDeleted: normalized.isDeleted,
+                updatedAt: new Date(),
+              },
+            });
+        }
+        written += 1;
+      }
+
+      if (
+        !page.nextCursor &&
+        connection.provider === "google-sheets" &&
+        connection.configuration.syncMode !== "append-only"
+      ) {
+        const tombstones = await tx
+          .update(sourceRecords)
+          .set({ isDeleted: true, updatedAt: new Date() })
+          .where(
+            and(
+              eq(sourceRecords.organizationId, connection.organizationId),
+              eq(sourceRecords.connectionId, connection.id),
+              eq(sourceRecords.isDeleted, false),
+              lt(sourceRecords.updatedAt, runStartedAt),
+            ),
+          )
+          .returning({ id: sourceRecords.id });
+        deleted = tombstones.length;
+        if (tombstones.length > 0) {
+          await tx
+            .update(activityFacts)
+            .set({ isDeleted: true, updatedAt: new Date() })
+            .where(
+              inArray(
+                activityFacts.sourceRecordId,
+                tombstones.map((row) => row.id),
+              ),
+            );
+        }
+      }
+      await tx
+        .insert(syncCursors)
+        .values({
+          organizationId: connection.organizationId,
+          connectionId: connection.id,
+          resourceType: "default",
+          cursor: page.nextCursor,
+          highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [syncCursors.organizationId, syncCursors.connectionId, syncCursors.resourceType],
+          set: {
+            cursor: page.nextCursor,
+            highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
             updatedAt: new Date(),
           },
         });
-      written += 1;
-    }
-    await tx
-      .insert(syncCursors)
-      .values({
-        organizationId: connection.organizationId,
-        connectionId: connection.id,
-        resourceType: "default",
-        cursor: page.nextCursor,
-        highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [syncCursors.organizationId, syncCursors.connectionId, syncCursors.resourceType],
-        set: {
-          cursor: page.nextCursor,
-          highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
-          updatedAt: new Date(),
-        },
-      });
-    if (run) {
       await tx
         .update(syncRuns)
         .set({
-          status: "succeeded",
+          status: page.nextCursor ? "running" : "succeeded",
           cursorEnd: page.nextCursor,
-          recordsSeen: page.records.length,
-          recordsWritten: written,
+          recordsSeen: sql`${syncRuns.recordsSeen} + ${page.records.length}`,
+          recordsWritten: sql`${syncRuns.recordsWritten} + ${written}`,
+          recordsDeleted: sql`${syncRuns.recordsDeleted} + ${deleted}`,
+          completedAt: page.nextCursor ? undefined : new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(syncRuns.id, run.id));
+      await tx
+        .update(connections)
+        .set({
+          status: "active",
+          lastReconciledAt: page.nextCursor ? connection.lastReconciledAt : new Date(),
+          lastSuccessfulSyncAt: page.nextCursor ? connection.lastSuccessfulSyncAt : new Date(),
+          consecutiveFailures: 0,
+          freshness: page.nextCursor ? "syncing" : "current",
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, connection.id));
+    });
+    await recordMeasurementSafely(db, {
+      organizationId: connection.organizationId,
+      connectionId: connection.id,
+      name: "reconciliation_repair_count",
+      value: deleted,
+      unit: "count",
+      safeDimensions: { provider: connection.provider },
+    });
+    await recordMeasurementSafely(db, {
+      organizationId: connection.organizationId,
+      connectionId: connection.id,
+      name: "provider_api_request",
+      value: 1,
+      unit: "count",
+      outcome: "success",
+      safeDimensions: { provider: connection.provider, operation: "reconcile_page" },
+    });
+    return {
+      nextCursor: page.nextCursor,
+      recordsWritten: written,
+      recordsDeleted: deleted,
+      runId: run.id,
+    };
+  } catch (error) {
+    const authorizationFailure = error instanceof AppError && error.status === 401;
+    const failures = connection.consecutiveFailures + 1;
+    await db.transaction(async (tx) => {
+      await tx
+        .update(syncRuns)
+        .set({
+          status: "failed",
+          errorCode: authorizationFailure ? "authorization_failed" : "reconciliation_failed",
+          errorMessage: authorizationFailure
+            ? "Provider authorization failed. Reconnect the account."
+            : "Reconciliation failed and will be retried.",
           completedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(syncRuns.id, run.id));
+      await tx
+        .update(connections)
+        .set({
+          status: failures >= 3 ? (authorizationFailure ? "paused" : "error") : connection.status,
+          freshness: authorizationFailure && failures >= 3 ? "unavailable" : "delayed",
+          consecutiveFailures: failures,
+          lastErrorCode: authorizationFailure ? "authorization_failed" : "reconciliation_failed",
+          lastErrorMessage: authorizationFailure
+            ? "Reconnect this provider to resume syncing."
+            : "The latest reconciliation attempt failed.",
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, connection.id));
+    });
+    await recordMeasurementSafely(db, {
+      organizationId: connection.organizationId,
+      connectionId: connection.id,
+      name: "provider_api_request",
+      value: 1,
+      unit: "count",
+      outcome: "failure",
+      safeDimensions: { provider: connection.provider, operation: "reconcile_page" },
+    });
+    if (authorizationFailure) {
+      await recordMeasurementSafely(db, {
+        organizationId: connection.organizationId,
+        connectionId: connection.id,
+        name: "oauth_refresh_failure",
+        value: 1,
+        unit: "count",
+        outcome: "failure",
+        safeDimensions: { provider: connection.provider },
+      });
     }
-    await tx
-      .update(connections)
-      .set({
-        lastReconciledAt: new Date(),
-        freshness: page.nextCursor ? "syncing" : "current",
-        lastErrorCode: null,
-        lastErrorMessage: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, connection.id));
-  });
-  return { nextCursor: page.nextCursor, recordsWritten: written };
+    throw error;
+  }
 }
 
 export async function renewExpiringSubscription(
