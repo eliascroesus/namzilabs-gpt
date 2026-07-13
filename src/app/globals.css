@@ -94,6 +94,9 @@ select:focus-visible {
 .field-control::placeholder {
   color: #697386;
 }
+.search-control {
+  padding-left: 2.6rem;
+}
 .field-label {
   display: block;
   color: #c8ced8;
@@ -276,6 +279,10 @@ select:focus-visible {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px rgb(118 103 237 / 0.25);
 }
+.source-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .data-picker {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -380,6 +387,69 @@ select:focus-visible {
 .icon-button:hover {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.value-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  left: 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #171b24;
+  padding: 0.3rem;
+  box-shadow: 0 18px 45px rgb(0 0 0 / 0.38);
+}
+.value-menu button,
+.value-menu span {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  font-size: 0.72rem;
+}
+.value-menu button:hover {
+  background: var(--surface-3);
+}
+.value-menu span {
+  color: var(--muted);
+}
+.tooltip-anchor {
+  position: relative;
+  cursor: help;
+  color: var(--muted);
+  outline: none;
+}
+.tooltip-content {
+  position: absolute;
+  z-index: 50;
+  bottom: calc(100% + 0.55rem);
+  left: 50%;
+  width: 250px;
+  visibility: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: #dce1e9;
+  background: #171b24;
+  padding: 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.5;
+  opacity: 0;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.38);
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.tooltip-anchor:hover .tooltip-content,
+.tooltip-anchor:focus .tooltip-content {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 .test-result {
   display: flex;

@@ -268,10 +268,11 @@ async function executeSavedVersionInternal(
     visited,
   );
   visited.delete(versionId);
-  const value =
+  const ratio =
     numerator.value === null || denominator.value === null
       ? null
       : safeDivide(numerator.value, denominator.value);
+  const value = ratio === null ? null : ratio * (definition.measure.asPercentage ? 100 : 1);
   return {
     value,
     rows: [{ value }],

@@ -355,6 +355,8 @@ export function describeMetric(definition: MetricDefinition): {
     formula:
       definition.measure.operation === "percentage"
         ? "matching numerator records ÷ matching denominator records × 100"
-        : `${operation}(${"field" in definition.measure ? definition.measure.field : "records"})`,
+        : definition.measure.operation === "ratio"
+          ? `${definition.measure.numeratorMetricVersionId} ÷ ${definition.measure.denominatorMetricVersionId}${definition.measure.asPercentage ? " × 100" : ""}`
+          : `${operation}(${"field" in definition.measure ? definition.measure.field : "records"})`,
   };
 }

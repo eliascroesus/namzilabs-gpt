@@ -96,6 +96,7 @@ export type GooglePreviewFilter = {
 export type GoogleSheetPreview = {
   records: Record<string, unknown>[];
   fields: InferredField[];
+  fieldValues: Record<string, (string | number | boolean)[]>;
   totalRecords: number;
   matchingRecords: number;
   metricValue: number;
@@ -106,7 +107,7 @@ function accessToken(context: ConnectorContext): string {
   return credential(context, "accessToken");
 }
 
-function rowsToObjects(
+export function rowsToObjects(
   values: (string | number | boolean | null)[][],
   firstDataRow = 2,
 ): Record<string, unknown>[] {
@@ -229,7 +230,11 @@ export async function previewGoogleSheet(
     spreadsheetId: string;
     sheetName: string;
     filters?: GooglePreviewFilter[];
-    calculation?: { operation: "count" | "distinct_count" | "sum" | "average"; field?: string };
+    calculation?: {
+      operation: "count" | "distinct_count" | "sum" | "average" | "percentage";
+      field?: string;
+      value?: string | number | boolean;
+    };
     limit?: number;
   },
 ): Promise<GoogleSheetPreview> {
@@ -239,9 +244,33 @@ export async function previewGoogleSheet(
     (input.filters ?? []).every((filter) => previewFilterPasses(record, filter)),
   );
   const limit = Math.min(10, Math.max(1, Math.trunc(input.limit ?? 3)));
-  const records = matching.slice(-limit).reverse();
-  const fields = inferFields(allRecords.slice(-100)).filter(
-    (field) => field.path !== "__namzi_row_number",
+  // Keep the selected latest rows in their original worksheet order so the inspector mirrors Sheets.
+  const records = matching.slice(-limit);
+  const inferredFields = inferFields(allRecords.slice(-100));
+  const inferredByPath = new Map(inferredFields.map((field) => [field.path, field]));
+  const orderedPaths = Object.keys(allRecords[0] ?? {}).filter(
+    (path) => path !== "__namzi_row_number",
+  );
+  const fields = orderedPaths.flatMap((path) => {
+    const field = inferredByPath.get(path);
+    return field ? [field] : [];
+  });
+  const fieldValues = Object.fromEntries(
+    fields.map((field) => [
+      field.path,
+      [
+        ...new Map(
+          allRecords.flatMap((record) => {
+            const value = record[field.path];
+            return typeof value === "string" ||
+              typeof value === "number" ||
+              typeof value === "boolean"
+              ? [[String(value), value] as const]
+              : [];
+          }),
+        ).values(),
+      ].slice(0, 50),
+    ]),
   );
   const calculation = input.calculation ?? { operation: "count" as const };
   const valuesForCalculation = calculation.field
@@ -257,10 +286,24 @@ export async function previewGoogleSheet(
     const total = numbers.reduce((sum, value) => sum + value, 0);
     metricValue =
       calculation.operation === "average" && numbers.length ? total / numbers.length : total;
+  } else if (calculation.operation === "percentage") {
+    const expected = String(calculation.value ?? "")
+      .trim()
+      .toLocaleLowerCase();
+    const numerator = calculation.field
+      ? matching.filter(
+          (record) =>
+            String(record[calculation.field!] ?? "")
+              .trim()
+              .toLocaleLowerCase() === expected,
+        ).length
+      : 0;
+    metricValue = matching.length ? (numerator / matching.length) * 100 : 0;
   }
   return {
     records,
     fields,
+    fieldValues,
     totalRecords: allRecords.length,
     matchingRecords: matching.length,
     metricValue,

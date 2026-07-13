@@ -4,6 +4,7 @@ import {
   columnName,
   googleSheetsConnector,
   planSheetPage,
+  rowsToObjects,
 } from "@/connectors/providers/google-sheets";
 import type { ConnectorContext } from "@/connectors/types";
 
@@ -46,6 +47,19 @@ describe("Google Sheets pagination", () => {
     expect(columnName(26)).toBe("Z");
     expect(columnName(27)).toBe("AA");
     expect(columnName(702)).toBe("ZZ");
+  });
+
+  it("preserves worksheet column and row order for the data inspector", () => {
+    const records = rowsToObjects([
+      ["email", "booked", "meeting date"],
+      ["first@example.com", "No", "2026-07-10"],
+      ["second@example.com", "Yes", "2026-07-11"],
+    ]);
+    expect(Object.keys(records[0]!).slice(0, 3)).toEqual(["email", "booked", "meeting date"]);
+    expect(records.map((record) => record.email)).toEqual([
+      "first@example.com",
+      "second@example.com",
+    ]);
   });
 
   it("uses the configured unique key so row reordering does not change identity", async () => {

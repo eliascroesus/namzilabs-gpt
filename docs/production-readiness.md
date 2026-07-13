@@ -25,7 +25,8 @@ Vercel runtime logs.
 - Atomic immutable raw-event and outbox commit with deterministic deduplication.
 - Account-level Google authorization with searchable spreadsheet discovery, worksheet metadata, and
   three latest genuine rows in the metric builder.
-- Resource-scoped, full paged Google Sheets ingestion begins only after a metric selects a worksheet.
+- Resource-scoped, full paged Google Sheets ingestion begins immediately after a metric selects a worksheet. Durable Inngest reconciliation remains the fallback and scheduled refresh path.
+- Tenant-scoped manual refresh synchronizes every active connection and reports partial failures without hiding successful sources.
 - Stable Google Sheets row identity and final-scan tombstones for deleted mutable rows.
 - Resumable reconciliation runs, one active step per connection and continuation after 100 pages.
 - Failed reconciliation state, safe customer errors, failure counters and pause after three

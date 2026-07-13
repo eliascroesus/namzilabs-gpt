@@ -105,6 +105,7 @@ export const measureSchema = z.union([
     operation: z.literal("ratio"),
     numeratorMetricVersionId: z.uuid(),
     denominatorMetricVersionId: z.uuid(),
+    asPercentage: z.boolean().default(false),
   }),
 ]);
 

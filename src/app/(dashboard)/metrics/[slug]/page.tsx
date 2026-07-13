@@ -1,13 +1,25 @@
-import { and, eq } from "drizzle-orm";
-import { ArrowLeft, Database, GitBranch } from "lucide-react";
+import { and, eq, ne } from "drizzle-orm";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { MetricDetailEditor, type MetricComponentOption } from "@/components/metric-detail-editor";
 import { getDb } from "@/db/client";
-import { metrics, metricVersions } from "@/db/schema";
+import { connectionResources, metrics, metricVersions } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
+import { executeSavedMetricVersion } from "@/server/metrics/service";
+import { parseMetricDefinition } from "@/server/metrics/dsl";
 
 export const dynamic = "force-dynamic";
+
+function sourceLabel(definition: unknown): string {
+  const parsed = parseMetricDefinition(definition);
+  if (!parsed.source) return "Combined metrics";
+  return (
+    [parsed.source.spreadsheetName, parsed.source.sheetName].filter(Boolean).join(" / ") ||
+    parsed.source.provider
+  );
+}
 
 export default async function MetricDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const tenant = await requireTenantContext();
@@ -31,54 +43,97 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
     )
     .limit(1);
   if (!version) notFound();
+  const definition = parseMetricDefinition(version.definition);
+  const [resource, componentRows] = await Promise.all([
+    definition.source
+      ? db
+          .select({ configuration: connectionResources.configuration })
+          .from(connectionResources)
+          .where(
+            and(
+              eq(connectionResources.organizationId, tenant.organizationId),
+              eq(connectionResources.connectionId, definition.source.connectionId),
+              eq(connectionResources.externalId, definition.source.resourceId),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    db
+      .select({
+        metricId: metrics.id,
+        versionId: metricVersions.id,
+        name: metrics.name,
+        description: metrics.description,
+        definition: metricVersions.definition,
+      })
+      .from(metrics)
+      .innerJoin(
+        metricVersions,
+        and(
+          eq(metricVersions.metricId, metrics.id),
+          eq(metricVersions.version, metrics.currentPublishedVersion),
+          eq(metricVersions.status, "published"),
+        ),
+      )
+      .where(and(eq(metrics.organizationId, tenant.organizationId), ne(metrics.id, metric.id))),
+  ]);
+  const components: MetricComponentOption[] = componentRows.map((component) => ({
+    metricId: component.metricId,
+    versionId: component.versionId,
+    name: component.name,
+    description: component.description,
+    sourceLabel: sourceLabel(component.definition),
+  }));
+  const end = new Date();
+  const start = new Date(end.getTime() - 30 * 86_400_000);
+  let currentValue: number | null = null;
+  try {
+    const result = await executeSavedMetricVersion(db, tenant.organizationId, version.id, {
+      start,
+      end,
+      timezone: "UTC",
+    });
+    currentValue = result.current.value;
+  } catch {
+    currentValue = null;
+  }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <Link
-        href="/metrics"
-        className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--muted)]"
-      >
+    <div className="mx-auto max-w-[1500px]">
+      <Link href="/metrics" className="eyebrow-link">
         <ArrowLeft size={15} /> Metrics
       </Link>
-      <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
+      <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{metric.name}</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+            Metric definition
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">{metric.name}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            {metric.description || "No description"}
+            Inspect its source, row identity, date field, calculation, and rules—then publish edits.
           </p>
         </div>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">
-          Version {version.version} · {version.status}
-        </span>
       </div>
-      <div className="mt-7 grid gap-4 sm:grid-cols-2">
-        <section className="shell-card p-5">
-          <h2 className="font-bold">Plain-language definition</h2>
-          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{version.plainLanguage}</p>
-        </section>
-        <section className="shell-card p-5">
-          <h2 className="font-bold">Formula</h2>
-          <code className="mt-3 block rounded-lg bg-[var(--surface-2)] p-3 text-sm">
-            {version.formula}
-          </code>
-          <p className="mt-3 text-xs text-[var(--muted)]">
-            Definition hash: {version.definitionHash.slice(0, 16)}…
-          </p>
-        </section>
-      </div>
-      <section className="shell-card mt-4 p-5">
-        <div className="flex items-center gap-2">
-          <Database size={17} className="text-[var(--brand)]" />
-          <h2 className="font-bold">Stored provenance</h2>
-        </div>
-        <pre className="mt-4 overflow-x-auto rounded-xl bg-[var(--surface-2)] p-4 text-xs leading-5">
-          {JSON.stringify(version.definition, null, 2)}
-        </pre>
-        <div className="mt-5 flex items-center gap-2 text-xs text-[var(--muted)]">
-          <GitBranch size={14} /> Dashboard cards pinned to this version do not change when a later
-          version is published.
-        </div>
-      </section>
+      <MetricDetailEditor
+        metric={{
+          id: metric.id,
+          name: metric.name,
+          description: metric.description,
+          slug: metric.slug,
+        }}
+        version={{
+          version: version.version,
+          status: version.status,
+          definition,
+          plainLanguage: version.plainLanguage,
+          formula: version.formula,
+          definitionHash: version.definitionHash,
+        }}
+        resourceConfiguration={resource?.configuration ?? null}
+        components={components}
+        currentValue={currentValue}
+      />
     </div>
   );
 }

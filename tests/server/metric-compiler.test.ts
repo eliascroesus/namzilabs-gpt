@@ -75,6 +75,19 @@ describe("metric SQL compiler", () => {
     expect(compiled.text).toContain("NULLIF");
   });
 
+  it("parses cross-source ratios with explicit percentage display semantics", () => {
+    const definition = parseMetricDefinition({
+      dataset: "source_records",
+      measure: {
+        operation: "ratio",
+        numeratorMetricVersionId: "00000000-0000-4000-8000-000000000010",
+        denominatorMetricVersionId: "00000000-0000-4000-8000-000000000011",
+        asPercentage: true,
+      },
+    });
+    expect(definition.measure).toMatchObject({ operation: "ratio", asPercentage: true });
+  });
+
   it("scopes spreadsheet metrics to one connection and tab while parameterizing column names", () => {
     const connectionId = "00000000-0000-4000-8000-000000000002";
     const resourceType = "google-sheet:sheet-id:123";

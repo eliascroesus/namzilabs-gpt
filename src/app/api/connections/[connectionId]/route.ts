@@ -102,12 +102,17 @@ export async function DELETE(
     const { connectionId } = await params;
     const db = getDb();
     const connection = await getConnectionForOrganization(db, tenant.organizationId, connectionId);
-    const context = await connectorContext(
-      db,
-      connection,
-      `${env().APP_URL}/api/webhooks/${connection.id}`,
-    );
-    await getConnector(asProviderId(connection.provider)).revokeCredentials(context);
+    try {
+      const context = await connectorContext(
+        db,
+        connection,
+        `${env().APP_URL}/api/webhooks/${connection.id}`,
+        { refreshAccessToken: false },
+      );
+      await getConnector(asProviderId(connection.provider)).revokeCredentials(context);
+    } catch {
+      // Local deletion must still work for failed, expired, or partially-created integrations.
+    }
     await deleteCredentials(db, tenant.organizationId, connection.id);
     const deleteData = new URL(request.url).searchParams.get("deleteData") === "true";
     if (deleteData) {

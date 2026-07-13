@@ -34,8 +34,9 @@ const schema = z.object({
     .default([]),
   calculation: z
     .object({
-      operation: z.enum(["count", "distinct_count", "sum", "average"]),
+      operation: z.enum(["count", "distinct_count", "sum", "average", "percentage"]),
       field: z.string().min(1).max(200).optional(),
+      value: z.union([z.string(), z.number(), z.boolean()]).optional(),
     })
     .default({ operation: "count" }),
 });

@@ -27,9 +27,16 @@ export function ConnectionActions({
       const response = await fetch(`/api/connections/${connectionId}/reconcile`, {
         method: "POST",
       });
-      const result = (await response.json()) as { error?: { message?: string } };
+      const result = (await response.json()) as {
+        data?: { status?: string; recordsWritten?: number };
+        error?: { message?: string };
+      };
       if (!response.ok) throw new Error(result.error?.message ?? "Reconciliation could not start.");
-      setMessage("Reconciliation queued. Freshness will update when the durable run completes.");
+      setMessage(
+        result.data?.status === "current"
+          ? `${result.data.recordsWritten?.toLocaleString() ?? 0} records synchronized.`
+          : "Synchronization queued. Freshness will update when the durable run completes.",
+      );
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Reconciliation could not start.");
@@ -39,21 +46,21 @@ export function ConnectionActions({
   }
 
   async function disconnect() {
-    if (!window.confirm("Disconnect this provider and revoke its stored credentials?")) return;
+    if (!window.confirm("Permanently delete this integration and its stored source data?")) return;
     setWorking(true);
     setMessage(null);
     try {
-      const response = await fetch(`/api/connections/${connectionId}`, { method: "DELETE" });
+      const response = await fetch(`/api/connections/${connectionId}?deleteData=true`, {
+        method: "DELETE",
+      });
       if (!response.ok) {
         const result = (await response.json()) as { error?: { message?: string } };
-        throw new Error(result.error?.message ?? "The connection could not be disconnected.");
+        throw new Error(result.error?.message ?? "The connection could not be deleted.");
       }
       router.push("/integrations");
       router.refresh();
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "The connection could not be disconnected.",
-      );
+      setMessage(error instanceof Error ? error.message : "The connection could not be deleted.");
       setWorking(false);
     }
   }
@@ -74,7 +81,7 @@ export function ConnectionActions({
           <RefreshCw size={15} /> Force sync
         </Button>
         <Button variant="secondary" onClick={disconnect} disabled={working}>
-          <Trash2 size={15} /> Disconnect
+          <Trash2 size={15} /> Delete integration
         </Button>
       </div>
       {message ? (

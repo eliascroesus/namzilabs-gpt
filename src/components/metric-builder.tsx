@@ -5,11 +5,15 @@ import {
   ArrowRight,
   BarChart3,
   Check,
+  ChevronDown,
+  CircleHelp,
+  Combine,
   Database,
   FileSpreadsheet,
   Filter,
   LoaderCircle,
   Plus,
+  Percent,
   RefreshCw,
   Search,
   Sigma,
@@ -19,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MetricConnection = {
   id: string;
@@ -31,6 +35,14 @@ export type MetricConnection = {
   status: string;
   freshness: string;
   resources: string[];
+};
+
+export type MetricComponent = {
+  metricId: string;
+  versionId: string;
+  name: string;
+  description: string;
+  sourceLabel: string;
 };
 
 type Spreadsheet = { id: string; name: string; modifiedTime?: string; webViewLink?: string };
@@ -50,12 +62,13 @@ type DataField = {
 type Preview = {
   records: Record<string, unknown>[];
   fields: DataField[];
+  fieldValues: Record<string, (string | number | boolean)[]>;
   totalRecords: number;
   matchingRecords: number;
   metricValue: number;
   refreshedAt: string;
 };
-type Calculation = "count" | "distinct_count" | "sum" | "average";
+type Calculation = "count" | "distinct_count" | "sum" | "average" | "percentage";
 type FilterOperator =
   | "equals"
   | "not_equals"
@@ -68,6 +81,7 @@ type FilterOperator =
   | "is_empty"
   | "is_not_empty";
 type FilterRow = { id: string; field: string; operator: FilterOperator; value: string };
+type RatioPreview = { numerator: number; denominator: number; percentage: number | null };
 
 const steps = [
   { label: "Source", detail: "App, account, and data", icon: Database },
@@ -122,19 +136,37 @@ function formatMetricValue(value: number): string {
     : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function InfoTooltip({ label }: { label: string }) {
+  return (
+    <span className="tooltip-anchor ml-1 inline-flex align-middle" tabIndex={0}>
+      <CircleHelp size={13} aria-label={label} />
+      <span className="tooltip-content" role="tooltip">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 export function MetricBuilder({
   connections,
+  metricComponents,
   initialConnectionId,
 }: {
   connections: MetricConnection[];
+  metricComponents: MetricComponent[];
   initialConnectionId?: string;
 }) {
   const router = useRouter();
   const initialConnection = connections.find((item) => item.id === initialConnectionId) ?? null;
   const [step, setStep] = useState(0);
   const [connection, setConnection] = useState<MetricConnection | null>(initialConnection);
+  const [sourceMode, setSourceMode] = useState<"single" | "combine">("single");
+  const [numeratorVersionId, setNumeratorVersionId] = useState("");
+  const [denominatorVersionId, setDenominatorVersionId] = useState("");
+  const [ratioPreview, setRatioPreview] = useState<RatioPreview | null>(null);
   const [spreadsheets, setSpreadsheets] = useState<Spreadsheet[]>([]);
   const [spreadsheetQuery, setSpreadsheetQuery] = useState("");
+  const [spreadsheetPickerOpen, setSpreadsheetPickerOpen] = useState(false);
   const [spreadsheet, setSpreadsheet] = useState<Spreadsheet | null>(null);
   const [tabs, setTabs] = useState<SheetTab[]>([]);
   const [tab, setTab] = useState<SheetTab | null>(null);
@@ -143,6 +175,7 @@ export function MetricBuilder({
   const [selectedRecord, setSelectedRecord] = useState(0);
   const [calculation, setCalculation] = useState<Calculation>("count");
   const [calculationField, setCalculationField] = useState("");
+  const [percentageValue, setPercentageValue] = useState("");
   const [uniqueKeyField, setUniqueKeyField] = useState("");
   const [timestampField, setTimestampField] = useState("");
   const [filters, setFilters] = useState<FilterRow[]>([]);
@@ -150,18 +183,45 @@ export function MetricBuilder({
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openValueMenu, setOpenValueMenu] = useState<string | null>(null);
+  const spreadsheetPickerRef = useRef<HTMLDivElement>(null);
 
-  const sourceReady = Boolean(
-    connection && (connection.provider === "google-sheets" ? spreadsheet && tab : genericResource),
-  );
+  const sourceReady =
+    sourceMode === "combine"
+      ? Boolean(
+          numeratorVersionId && denominatorVersionId && numeratorVersionId !== denominatorVersionId,
+        )
+      : Boolean(
+          connection &&
+          (connection.provider === "google-sheets" ? spreadsheet && tab : genericResource),
+        );
   const fields = useMemo(() => preview?.fields ?? [], [preview?.fields]);
   const dataRecord = preview?.records[selectedRecord] ?? preview?.records[0];
+  const numeratorMetric = metricComponents.find((item) => item.versionId === numeratorVersionId);
+  const denominatorMetric = metricComponents.find(
+    (item) => item.versionId === denominatorVersionId,
+  );
   const currentSourceLabel =
-    connection?.provider === "google-sheets"
-      ? spreadsheet && tab
-        ? `${spreadsheet.name} / ${tab.name}`
-        : "Choose spreadsheet and tab"
-      : genericResource || "Choose a data object";
+    sourceMode === "combine"
+      ? numeratorMetric && denominatorMetric
+        ? `${numeratorMetric.name} ÷ ${denominatorMetric.name}`
+        : "Choose two component metrics"
+      : connection?.provider === "google-sheets"
+        ? spreadsheet && tab
+          ? `${spreadsheet.name} / ${tab.name}`
+          : "Choose spreadsheet and tab"
+        : genericResource || "Choose a data object";
+  const testReady = sourceMode === "combine" ? Boolean(ratioPreview) : Boolean(preview);
+
+  useEffect(() => {
+    function closePicker(event: PointerEvent) {
+      if (!spreadsheetPickerRef.current?.contains(event.target as Node)) {
+        setSpreadsheetPickerOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closePicker);
+    return () => document.removeEventListener("pointerdown", closePicker);
+  }, []);
 
   const previewFilters = useMemo(
     () =>
@@ -185,6 +245,7 @@ export function MetricBuilder({
   async function loadSpreadsheets(target: MetricConnection, query = "") {
     setLoading(true);
     setError(null);
+    setSpreadsheetPickerOpen(true);
     try {
       const parameters = new URLSearchParams();
       if (query.trim()) parameters.set("query", query.trim());
@@ -206,6 +267,7 @@ export function MetricBuilder({
   }
 
   async function chooseConnection(target: MetricConnection) {
+    setSourceMode("single");
     setConnection(target);
     setSpreadsheet(null);
     setTab(null);
@@ -218,6 +280,7 @@ export function MetricBuilder({
 
   async function chooseSpreadsheet(target: Spreadsheet) {
     if (!connection) return;
+    setSpreadsheetPickerOpen(false);
     setSpreadsheet(target);
     setTab(null);
     setTabs([]);
@@ -262,6 +325,7 @@ export function MetricBuilder({
             calculation: {
               operation: calculation,
               ...(calculation !== "count" && calculationField ? { field: calculationField } : {}),
+              ...(calculation === "percentage" ? { value: percentageValue } : {}),
             },
           }),
         });
@@ -292,6 +356,23 @@ export function MetricBuilder({
       setPreview({
         records,
         fields: loadedFields,
+        fieldValues: Object.fromEntries(
+          loadedFields.map((field) => [
+            field.path,
+            [
+              ...new Set(
+                records.flatMap((record) => {
+                  const value = record[field.path];
+                  return typeof value === "string" ||
+                    typeof value === "number" ||
+                    typeof value === "boolean"
+                    ? [value]
+                    : [];
+                }),
+              ),
+            ].slice(0, 50),
+          ]),
+        ),
         totalRecords: records.length,
         matchingRecords: records.length,
         metricValue: records.length,
@@ -299,6 +380,45 @@ export function MetricBuilder({
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not test this source.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadRatioPreview() {
+    if (!numeratorVersionId || !denominatorVersionId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - 30 * 86_400_000);
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const loadValue = async (versionId: string) => {
+        const response = await fetch(`/api/metric-versions/${versionId}/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start: start.toISOString(), end: end.toISOString(), timezone }),
+        });
+        const result = (await response.json()) as {
+          data?: { current?: { value?: number | null } };
+          error?: { message?: string };
+        };
+        if (!response.ok) {
+          throw new Error(result.error?.message ?? "Could not evaluate a component metric.");
+        }
+        return Number(result.data?.current?.value ?? 0);
+      };
+      const [numerator, denominator] = await Promise.all([
+        loadValue(numeratorVersionId),
+        loadValue(denominatorVersionId),
+      ]);
+      setRatioPreview({
+        numerator,
+        denominator,
+        percentage: denominator === 0 ? null : (numerator / denominator) * 100,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not test combined metrics.");
     } finally {
       setLoading(false);
     }
@@ -323,10 +443,38 @@ export function MetricBuilder({
   }
 
   async function publishMetric() {
-    if (!connection || !sourceReady || !preview || !name.trim()) return;
+    if (!sourceReady || !testReady || !name.trim()) return;
     setPublishing(true);
     setError(null);
     try {
+      if (sourceMode === "combine") {
+        const response = await fetch("/api/metrics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            description: `${numeratorMetric?.name ?? "Numerator"} as a percentage of ${denominatorMetric?.name ?? "denominator"}`,
+            definition: {
+              dataset: "source_records",
+              measure: {
+                operation: "ratio",
+                numeratorMetricVersionId: numeratorVersionId,
+                denominatorMetricVersionId: denominatorVersionId,
+                asPercentage: true,
+              },
+              filters: [],
+              groupBy: [],
+              comparison: "previous_period",
+            },
+          }),
+        });
+        const result = (await response.json()) as { error?: { message?: string } };
+        if (!response.ok) throw new Error(result.error?.message ?? "Could not publish the metric.");
+        router.push("/metrics");
+        router.refresh();
+        return;
+      }
+      if (!connection || !preview) return;
       let resourceType = genericResource;
       let resourceId = genericResource;
       if (connection.provider === "google-sheets" && spreadsheet && tab) {
@@ -369,7 +517,22 @@ export function MetricBuilder({
         measure:
           calculation === "count"
             ? { operation: "count" }
-            : { operation: calculation, field: `data.${calculationField}` },
+            : calculation === "percentage"
+              ? {
+                  operation: "percentage",
+                  numeratorFilters: [
+                    {
+                      field: `data.${calculationField}`,
+                      operator: "equals",
+                      value:
+                        fields.find((item) => item.path === calculationField)?.type === "number"
+                          ? Number(percentageValue)
+                          : percentageValue,
+                    },
+                  ],
+                  denominatorFilters: [],
+                }
+              : { operation: calculation, field: `data.${calculationField}` },
         filters: previewFilters.map((filter) => ({ ...filter, field: `data.${filter.field}` })),
         timeField: "occurred_at",
         groupBy: [],
@@ -396,7 +559,10 @@ export function MetricBuilder({
   }
 
   function nextStep() {
-    if (step === 0 && sourceReady && !preview) void loadPreview();
+    if (step === 0 && sourceReady && !testReady) {
+      if (sourceMode === "combine") void loadRatioPreview();
+      else void loadPreview();
+    }
     setStep((current) => Math.min(4, current + 1));
   }
 
@@ -413,12 +579,14 @@ export function MetricBuilder({
           </p>
         </div>
         <div className="status-pill">
-          <span className={`status-dot ${preview ? "bg-[var(--success)]" : "bg-[var(--muted)]"}`} />
-          {preview ? "Live sample loaded" : "Waiting for source"}
+          <span
+            className={`status-dot ${testReady ? "bg-[var(--success)]" : "bg-[var(--muted)]"}`}
+          />
+          {testReady ? "Live result loaded" : "Waiting for source"}
         </div>
       </div>
 
-      {connections.length === 0 ? (
+      {connections.length === 0 && metricComponents.length < 2 ? (
         <section className="shell-card mt-7 p-12 text-center">
           <Database size={28} className="mx-auto text-[var(--muted)]" />
           <h2 className="mt-4 text-xl font-semibold">Connect a data source first</h2>
@@ -462,411 +630,699 @@ export function MetricBuilder({
             <div className="p-6">
               {step === 0 ? (
                 <div>
-                  <label className="field-label">Connected account</label>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {connections.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => void chooseConnection(item)}
-                        className={`source-option ${connection?.id === item.id ? "source-option-active" : ""}`}
-                      >
-                        <span className="provider-mark size-10">{item.logo}</span>
-                        <span className="min-w-0 text-left">
-                          <span className="block truncate text-sm font-semibold">
-                            {item.providerName}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
-                            {item.accountName ?? item.name}
-                          </span>
+                  <div className="mb-6 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSourceMode("single");
+                        setRatioPreview(null);
+                      }}
+                      className={`source-option ${sourceMode === "single" ? "source-option-active" : ""}`}
+                    >
+                      <Database size={18} />
+                      <span className="text-left">
+                        <span className="block text-sm font-semibold">Single source</span>
+                        <span className="mt-1 block text-xs text-[var(--muted)]">
+                          Build from one integration
                         </span>
-                        {connection?.id === item.id ? (
-                          <Check size={16} className="ml-auto text-[var(--accent)]" />
-                        ) : null}
-                      </button>
-                    ))}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSourceMode("combine");
+                        setPreview(null);
+                        setCalculation("percentage");
+                      }}
+                      disabled={metricComponents.length < 2}
+                      className={`source-option ${sourceMode === "combine" ? "source-option-active" : ""}`}
+                    >
+                      <Combine size={18} />
+                      <span className="text-left">
+                        <span className="block text-sm font-semibold">Combine metrics</span>
+                        <span className="mt-1 block text-xs text-[var(--muted)]">
+                          Percentage across sources
+                        </span>
+                      </span>
+                    </button>
                   </div>
 
-                  {connection?.provider === "google-sheets" ? (
-                    <div className="mt-7">
-                      <div className="flex items-end justify-between gap-3">
-                        <label className="field-label">Spreadsheet</label>
-                        <button
-                          type="button"
-                          onClick={() => void loadSpreadsheets(connection, spreadsheetQuery)}
-                          className="text-button"
-                        >
-                          <RefreshCw size={13} /> Refresh
-                        </button>
-                      </div>
-                      <div className="relative mt-2">
-                        <Search
-                          size={16}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-                        />
-                        <input
-                          value={spreadsheetQuery}
-                          onChange={(event) => setSpreadsheetQuery(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter")
-                              void loadSpreadsheets(connection, spreadsheetQuery);
-                          }}
-                          placeholder="Search all spreadsheets in this Google account"
-                          className="field-control w-full pl-10"
-                        />
-                      </div>
-                      <div className="data-picker mt-3 max-h-56 overflow-y-auto">
-                        {loading && spreadsheets.length === 0 ? (
-                          <div className="picker-empty">
-                            <LoaderCircle size={17} className="animate-spin" /> Loading
-                            spreadsheets…
-                          </div>
-                        ) : spreadsheets.length ? (
-                          spreadsheets.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => void chooseSpreadsheet(item)}
-                              className={`data-picker-row ${spreadsheet?.id === item.id ? "data-picker-row-active" : ""}`}
-                            >
-                              <FileSpreadsheet size={17} className="text-emerald-400" />
-                              <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
-                                {item.name}
+                  {sourceMode === "single" ? (
+                    <>
+                      <label className="field-label">Connected account</label>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {connections.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => void chooseConnection(item)}
+                            className={`source-option ${connection?.id === item.id ? "source-option-active" : ""}`}
+                          >
+                            <span className="provider-mark size-10">{item.logo}</span>
+                            <span className="min-w-0 text-left">
+                              <span className="block truncate text-sm font-semibold">
+                                {item.providerName}
                               </span>
-                              <span className="text-[11px] text-[var(--muted)]">
-                                {item.modifiedTime
-                                  ? new Date(item.modifiedTime).toLocaleDateString()
-                                  : "Available"}
+                              <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+                                {item.accountName ?? item.name}
                               </span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="picker-empty">
-                            No spreadsheets found for this account.
-                          </div>
-                        )}
+                            </span>
+                            {connection?.id === item.id ? (
+                              <Check size={16} className="ml-auto text-[var(--accent)]" />
+                            ) : null}
+                          </button>
+                        ))}
                       </div>
 
-                      {spreadsheet ? (
-                        <div className="mt-6">
-                          <label className="field-label">Worksheet tab</label>
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            {tabs.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => void chooseTab(item)}
-                                className={`source-option ${tab?.id === item.id ? "source-option-active" : ""}`}
-                              >
-                                <Table2 size={17} className="text-[var(--accent)]" />
-                                <span className="min-w-0 text-left">
-                                  <span className="block truncate text-sm font-semibold">
-                                    {item.name}
-                                  </span>
-                                  <span className="block text-[11px] text-[var(--muted)]">
-                                    {item.columnCount} columns · {item.rowCapacity.toLocaleString()}{" "}
-                                    row capacity
-                                  </span>
-                                </span>
-                              </button>
-                            ))}
+                      {connection?.provider === "google-sheets" ? (
+                        <div className="mt-7">
+                          <div className="flex items-end justify-between gap-3">
+                            <label className="field-label">Spreadsheet</label>
+                            <button
+                              type="button"
+                              onClick={() => void loadSpreadsheets(connection, spreadsheetQuery)}
+                              className="text-button"
+                            >
+                              <RefreshCw size={13} /> Refresh
+                            </button>
                           </div>
+                          <div ref={spreadsheetPickerRef} className="mt-2">
+                            <div className="relative">
+                              <Search
+                                size={16}
+                                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+                              />
+                              <input
+                                value={spreadsheetQuery}
+                                onFocus={() => setSpreadsheetPickerOpen(true)}
+                                onChange={(event) => {
+                                  setSpreadsheetQuery(event.target.value);
+                                  setSpreadsheetPickerOpen(true);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter")
+                                    void loadSpreadsheets(connection, spreadsheetQuery);
+                                }}
+                                placeholder="Search all spreadsheets in this Google account"
+                                className="field-control search-control w-full"
+                              />
+                            </div>
+                            {spreadsheetPickerOpen ? (
+                              <div className="data-picker mt-3 max-h-56 overflow-y-auto">
+                                {loading && spreadsheets.length === 0 ? (
+                                  <div className="picker-empty">
+                                    <LoaderCircle size={17} className="animate-spin" /> Loading
+                                    spreadsheets…
+                                  </div>
+                                ) : spreadsheets.length ? (
+                                  spreadsheets.map((item) => (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => void chooseSpreadsheet(item)}
+                                      className={`data-picker-row ${spreadsheet?.id === item.id ? "data-picker-row-active" : ""}`}
+                                    >
+                                      <FileSpreadsheet size={17} className="text-emerald-400" />
+                                      <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                                        {item.name}
+                                      </span>
+                                      <span className="text-[11px] text-[var(--muted)]">
+                                        {item.modifiedTime
+                                          ? new Date(item.modifiedTime).toLocaleDateString()
+                                          : "Available"}
+                                      </span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="picker-empty">
+                                    No spreadsheets found for this account.
+                                  </div>
+                                )}
+                              </div>
+                            ) : spreadsheet ? (
+                              <button
+                                type="button"
+                                onClick={() => setSpreadsheetPickerOpen(true)}
+                                className="mt-3 flex w-full items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-left text-sm"
+                              >
+                                <FileSpreadsheet size={16} className="text-emerald-400" />
+                                <span className="min-w-0 flex-1 truncate font-medium">
+                                  {spreadsheet.name}
+                                </span>
+                                <ChevronDown size={15} className="text-[var(--muted)]" />
+                              </button>
+                            ) : null}
+                          </div>
+
+                          {spreadsheet ? (
+                            <div className="mt-6">
+                              <label className="field-label">Worksheet tab</label>
+                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                {tabs.map((item) => (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => void chooseTab(item)}
+                                    className={`source-option ${tab?.id === item.id ? "source-option-active" : ""}`}
+                                  >
+                                    <Table2 size={17} className="text-[var(--accent)]" />
+                                    <span className="min-w-0 text-left">
+                                      <span className="block truncate text-sm font-semibold">
+                                        {item.name}
+                                      </span>
+                                      <span className="block text-[11px] text-[var(--muted)]">
+                                        {item.columnCount} columns ·{" "}
+                                        {item.rowCapacity.toLocaleString()} row capacity
+                                      </span>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
+                      ) : connection ? (
+                        <label className="mt-7 block">
+                          <span className="field-label">Data object</span>
+                          <select
+                            value={genericResource}
+                            onChange={(event) => setGenericResource(event.target.value)}
+                            className="field-control mt-2 w-full"
+                          >
+                            {connection.resources.map((resource) => (
+                              <option key={resource} value={resource}>
+                                {resource.replaceAll("_", " ")}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div>
+                      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">
+                        Reuse two published metrics from any integrations. Namzi keeps each
+                        source&apos;s rules intact, then calculates numerator ÷ denominator × 100.
+                      </div>
+                      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                        <label>
+                          <span className="field-label">Numerator</span>
+                          <select
+                            value={numeratorVersionId}
+                            onChange={(event) => {
+                              setNumeratorVersionId(event.target.value);
+                              setRatioPreview(null);
+                            }}
+                            className="field-control mt-2 w-full"
+                          >
+                            <option value="">Choose metric</option>
+                            {metricComponents.map((component) => (
+                              <option key={component.versionId} value={component.versionId}>
+                                {component.name} · {component.sourceLabel}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="mt-2 block text-[11px] text-[var(--muted)]">
+                            e.g. Bookings
+                          </span>
+                        </label>
+                        <label>
+                          <span className="field-label">Denominator</span>
+                          <select
+                            value={denominatorVersionId}
+                            onChange={(event) => {
+                              setDenominatorVersionId(event.target.value);
+                              setRatioPreview(null);
+                            }}
+                            className="field-control mt-2 w-full"
+                          >
+                            <option value="">Choose metric</option>
+                            {metricComponents.map((component) => (
+                              <option key={component.versionId} value={component.versionId}>
+                                {component.name} · {component.sourceLabel}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="mt-2 block text-[11px] text-[var(--muted)]">
+                            e.g. SMS sent
+                          </span>
+                        </label>
+                      </div>
+                      {numeratorVersionId === denominatorVersionId && numeratorVersionId ? (
+                        <div className="error-panel mt-4">Choose two different metrics.</div>
                       ) : null}
                     </div>
-                  ) : connection ? (
-                    <label className="mt-7 block">
-                      <span className="field-label">Data object</span>
-                      <select
-                        value={genericResource}
-                        onChange={(event) => setGenericResource(event.target.value)}
-                        className="field-control mt-2 w-full"
-                      >
-                        {connection.resources.map((resource) => (
-                          <option key={resource} value={resource}>
-                            {resource.replaceAll("_", " ")}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : null}
+                  )}
                 </div>
               ) : null}
 
               {step === 1 ? (
                 <div>
-                  <div className="flex items-start justify-between gap-4">
+                  {sourceMode === "combine" ? (
                     <div>
-                      <h3 className="text-lg font-semibold">Test with recent records</h3>
-                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                        These are real records returned from {currentSourceLabel}, not generated
-                        examples.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary-link"
-                      onClick={() => void loadPreview()}
-                    >
-                      <RefreshCw size={14} /> Find new records
-                    </button>
-                  </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    <div className="stat-tile">
-                      <span>Total rows found</span>
-                      <strong>{preview?.totalRecords.toLocaleString() ?? "—"}</strong>
-                    </div>
-                    <div className="stat-tile">
-                      <span>Fields detected</span>
-                      <strong>{fields.length || "—"}</strong>
-                    </div>
-                    <div className="stat-tile">
-                      <span>Last tested</span>
-                      <strong className="text-sm">
-                        {preview ? new Date(preview.refreshedAt).toLocaleTimeString() : "—"}
-                      </strong>
-                    </div>
-                  </div>
-                  <div className="mt-6 rounded-xl border border-[var(--line)]">
-                    <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-                      <p className="text-sm font-semibold">Detected columns</p>
-                      <span className="text-xs text-[var(--muted)]">From latest 100 rows</span>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                      {fields.map((field) => (
-                        <div
-                          key={field.path}
-                          className="grid grid-cols-[1fr_90px] border-b border-[var(--line)] px-4 py-2.5 text-sm last:border-0"
-                        >
-                          <span className="truncate font-medium">{field.path}</span>
-                          <span className="field-type">{field.type}</span>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">Test the combined percentage</h3>
+                          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                            Both component metrics are evaluated over the same live 30-day window.
+                          </p>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                  {connection?.provider === "google-sheets" ? (
-                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                      <label>
-                        <span className="field-label">Unique row ID (optional)</span>
-                        <select
-                          value={uniqueKeyField}
-                          onChange={(event) => setUniqueKeyField(event.target.value)}
-                          className="field-control mt-2 w-full"
+                        <button
+                          type="button"
+                          className="secondary-link"
+                          onClick={() => void loadRatioPreview()}
                         >
-                          <option value="">Use sheet row number</option>
-                          {fields.map((field) => (
-                            <option key={field.path} value={field.path}>
-                              {field.path}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span className="field-label">Record date (optional)</span>
-                        <select
-                          value={timestampField}
-                          onChange={(event) => setTimestampField(event.target.value)}
-                          className="field-control mt-2 w-full"
-                        >
-                          <option value="">Use sync time</option>
-                          {fields.map((field) => (
-                            <option key={field.path} value={field.path}>
-                              {field.path}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <RefreshCw size={14} /> Refresh values
+                        </button>
+                      </div>
+                      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                        <div className="stat-tile">
+                          <span>{numeratorMetric?.name ?? "Numerator"}</span>
+                          <strong>{ratioPreview?.numerator.toLocaleString() ?? "—"}</strong>
+                        </div>
+                        <div className="stat-tile">
+                          <span>{denominatorMetric?.name ?? "Denominator"}</span>
+                          <strong>{ratioPreview?.denominator.toLocaleString() ?? "—"}</strong>
+                        </div>
+                        <div className="stat-tile border-[var(--accent)]/40">
+                          <span>Combined percentage</span>
+                          <strong>
+                            {ratioPreview?.percentage === null || !ratioPreview
+                              ? "—"
+                              : `${formatMetricValue(ratioPreview.percentage)}%`}
+                          </strong>
+                        </div>
+                      </div>
+                      {ratioPreview?.percentage === null ? (
+                        <div className="error-panel mt-5">
+                          The denominator is zero in this period, so a percentage cannot be
+                          calculated.
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">Test with recent records</h3>
+                          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                            These are real records returned from {currentSourceLabel}, not generated
+                            examples.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-link"
+                          onClick={() => void loadPreview()}
+                        >
+                          <RefreshCw size={14} /> Find new records
+                        </button>
+                      </div>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        <div className="stat-tile">
+                          <span>Total rows found</span>
+                          <strong>{preview?.totalRecords.toLocaleString() ?? "—"}</strong>
+                        </div>
+                        <div className="stat-tile">
+                          <span>Fields detected</span>
+                          <strong>{fields.length || "—"}</strong>
+                        </div>
+                        <div className="stat-tile">
+                          <span>Last tested</span>
+                          <strong className="text-sm">
+                            {preview ? new Date(preview.refreshedAt).toLocaleTimeString() : "—"}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="mt-6 rounded-xl border border-[var(--line)]">
+                        <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+                          <p className="text-sm font-semibold">Detected columns</p>
+                          <span className="text-xs text-[var(--muted)]">From latest 100 rows</span>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                          {fields.map((field) => (
+                            <div
+                              key={field.path}
+                              className="grid grid-cols-[1fr_90px] border-b border-[var(--line)] px-4 py-2.5 text-sm last:border-0"
+                            >
+                              <span className="truncate font-medium">{field.path}</span>
+                              <span className="field-type">{field.type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {connection?.provider === "google-sheets" ? (
+                        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                          <label>
+                            <span className="field-label">
+                              Unique row ID (optional)
+                              <InfoTooltip label="A stable unique value lets Namzi update the same row instead of counting it twice. Use an ID or email only when it is always unique; otherwise keep the sheet row number." />
+                            </span>
+                            <select
+                              value={uniqueKeyField}
+                              onChange={(event) => setUniqueKeyField(event.target.value)}
+                              className="field-control mt-2 w-full"
+                            >
+                              <option value="">Use sheet row number</option>
+                              {fields.map((field) => (
+                                <option key={field.path} value={field.path}>
+                                  {field.path}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span className="field-label">
+                              Record date (optional)
+                              <InfoTooltip label="This date controls dashboard time ranges and trend graphs. Pick the real event date for historical reporting, or keep sync time when the sheet has no reliable date column." />
+                            </span>
+                            <select
+                              value={timestampField}
+                              onChange={(event) => setTimestampField(event.target.value)}
+                              className="field-control mt-2 w-full"
+                            >
+                              <option value="">Use sync time</option>
+                              {fields.map((field) => (
+                                <option key={field.path} value={field.path}>
+                                  {field.path}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               ) : null}
 
               {step === 2 ? (
                 <div>
-                  <h3 className="text-lg font-semibold">What should this metric calculate?</h3>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    Start with a simple operation. The result updates against every matching record.
-                  </p>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    {(
-                      [
-                        ["count", "Count records", "How many rows match"],
-                        ["distinct_count", "Count unique", "Unique values in one field"],
-                        ["sum", "Sum", "Total of a numeric field"],
-                        ["average", "Average", "Average of a numeric field"],
-                      ] as const
-                    ).map(([value, label, detail]) => (
+                  {sourceMode === "combine" ? (
+                    <div>
+                      <span className="icon-tile">
+                        <Percent size={18} />
+                      </span>
+                      <h3 className="mt-4 text-lg font-semibold">Cross-source percentage</h3>
+                      <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
+                        Namzi divides {numeratorMetric?.name ?? "the numerator"} by{" "}
+                        {denominatorMetric?.name ?? "the denominator"} and displays the result as a
+                        percentage. Each component keeps its own source, columns, and filter rules.
+                      </p>
+                      <div className="test-result mt-5">
+                        <Check size={16} /> The combined formula is reusable across dashboards and
+                        date ranges.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-semibold">What should this metric calculate?</h3>
+                      <p className="mt-1 text-sm text-[var(--muted)]">
+                        Start with a simple operation. The result updates against every matching
+                        record.
+                      </p>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                        {(
+                          [
+                            ["count", "Count records", "How many rows match"],
+                            ["distinct_count", "Count unique", "Unique values in one field"],
+                            ["sum", "Sum", "Total of a numeric field"],
+                            ["average", "Average", "Average of a numeric field"],
+                            [
+                              "percentage",
+                              "Percentage",
+                              "Rows matching a value ÷ all matching rows",
+                            ],
+                          ] as const
+                        ).map(([value, label, detail]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setCalculation(value)}
+                            className={`calculation-option ${calculation === value ? "source-option-active" : ""}`}
+                          >
+                            <BarChart3 size={18} />
+                            <span>
+                              <span className="block text-sm font-semibold">{label}</span>
+                              <span className="mt-1 block text-xs text-[var(--muted)]">
+                                {detail}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {calculation !== "count" ? (
+                        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                          <label>
+                            <span className="field-label">
+                              {calculation === "percentage"
+                                ? "Success field"
+                                : "Field to calculate"}
+                            </span>
+                            <select
+                              value={calculationField}
+                              onChange={(event) => {
+                                setCalculationField(event.target.value);
+                                setPercentageValue("");
+                              }}
+                              className="field-control mt-2 w-full"
+                            >
+                              {fields
+                                .filter((field) =>
+                                  ["sum", "average"].includes(calculation)
+                                    ? field.type === "number"
+                                    : true,
+                                )
+                                .map((field) => (
+                                  <option key={field.path} value={field.path}>
+                                    {field.path} · {field.type}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          {calculation === "percentage" ? (
+                            <label>
+                              <span className="field-label">Value that counts as success</span>
+                              <input
+                                value={percentageValue}
+                                onChange={(event) => setPercentageValue(event.target.value)}
+                                list="percentage-values"
+                                className="field-control mt-2 w-full"
+                                placeholder="Choose or type a value"
+                              />
+                              <datalist id="percentage-values">
+                                {(preview?.fieldValues[calculationField] ?? []).map((value) => (
+                                  <option key={String(value)} value={String(value)} />
+                                ))}
+                              </datalist>
+                            </label>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <button
-                        key={value}
                         type="button"
-                        onClick={() => setCalculation(value)}
-                        className={`calculation-option ${calculation === value ? "source-option-active" : ""}`}
+                        onClick={() => void loadPreview({ useFilters: true })}
+                        className="secondary-link mt-5"
                       >
-                        <BarChart3 size={18} />
-                        <span>
-                          <span className="block text-sm font-semibold">{label}</span>
-                          <span className="mt-1 block text-xs text-[var(--muted)]">{detail}</span>
-                        </span>
+                        <RefreshCw size={14} /> Test calculation
                       </button>
-                    ))}
-                  </div>
-                  {calculation !== "count" ? (
-                    <label className="mt-6 block">
-                      <span className="field-label">Field to calculate</span>
-                      <select
-                        value={calculationField}
-                        onChange={(event) => setCalculationField(event.target.value)}
-                        className="field-control mt-2 w-full"
-                      >
-                        {fields
-                          .filter((field) =>
-                            ["sum", "average"].includes(calculation)
-                              ? field.type === "number"
-                              : true,
-                          )
-                          .map((field) => (
-                            <option key={field.path} value={field.path}>
-                              {field.path} · {field.type}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void loadPreview({ useFilters: true })}
-                    className="secondary-link mt-5"
-                  >
-                    <RefreshCw size={14} /> Test calculation
-                  </button>
+                    </>
+                  )}
                 </div>
               ) : null}
 
               {step === 3 ? (
                 <div>
-                  <div className="flex items-start justify-between gap-4">
+                  {sourceMode === "combine" ? (
                     <div>
-                      <h3 className="text-lg font-semibold">Only include the records you want</h3>
-                      <p className="mt-1 text-sm text-[var(--muted)]">
-                        All rules use AND logic. Every rule must pass for a row to count.
+                      <span className="icon-tile">
+                        <Combine size={18} />
+                      </span>
+                      <h3 className="mt-4 text-lg font-semibold">Rules come from the components</h3>
+                      <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
+                        {numeratorMetric?.name ?? "The numerator"} and{" "}
+                        {denominatorMetric?.name ?? "the denominator"} keep the filters you already
+                        published. Edit either component metric if one side of the ratio needs
+                        different rules.
                       </p>
                     </div>
-                    <button type="button" onClick={addFilter} className="secondary-link">
-                      <Plus size={14} /> Add rule
-                    </button>
-                  </div>
-                  {filters.length === 0 ? (
-                    <button type="button" onClick={addFilter} className="empty-filter mt-6">
-                      <Filter size={20} />
-                      <span className="font-semibold">No filters — every record will count</span>
-                      <span className="text-xs text-[var(--muted)]">
-                        Add a rule to narrow the data.
-                      </span>
-                    </button>
                   ) : (
-                    <div className="mt-6 space-y-3">
-                      {filters.map((filter, index) => (
-                        <div key={filter.id} className="filter-row">
-                          <div className="mb-2 flex items-center justify-between sm:hidden">
-                            <span className="text-xs font-semibold text-[var(--muted)]">
-                              Rule {index + 1}
-                            </span>
-                          </div>
-                          <select
-                            value={filter.field}
-                            onChange={(event) =>
-                              setFilters((current) =>
-                                current.map((item) =>
-                                  item.id === filter.id
-                                    ? { ...item, field: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            className="field-control"
-                          >
-                            {fields.map((field) => (
-                              <option key={field.path} value={field.path}>
-                                {field.path}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={filter.operator}
-                            onChange={(event) =>
-                              setFilters((current) =>
-                                current.map((item) =>
-                                  item.id === filter.id
-                                    ? { ...item, operator: event.target.value as FilterOperator }
-                                    : item,
-                                ),
-                              )
-                            }
-                            className="field-control"
-                          >
-                            {filterOperators.map((operator) => (
-                              <option key={operator.value} value={operator.value}>
-                                {operator.label}
-                              </option>
-                            ))}
-                          </select>
-                          {!["is_empty", "is_not_empty"].includes(filter.operator) ? (
-                            <input
-                              value={filter.value}
-                              onChange={(event) =>
-                                setFilters((current) =>
-                                  current.map((item) =>
-                                    item.id === filter.id
-                                      ? { ...item, value: event.target.value }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              placeholder="Value"
-                              className="field-control"
-                            />
-                          ) : (
-                            <div className="field-control flex items-center text-xs text-[var(--muted)]">
-                              No value needed
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            aria-label={`Remove rule ${index + 1}`}
-                            onClick={() =>
-                              setFilters((current) =>
-                                current.filter((item) => item.id !== filter.id),
-                              )
-                            }
-                            className="icon-button"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                    <>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">
+                            Only include the records you want
+                          </h3>
+                          <p className="mt-1 text-sm text-[var(--muted)]">
+                            All rules use AND logic. Every rule must pass for a row to count.
+                          </p>
                         </div>
-                      ))}
-                    </div>
+                        <button type="button" onClick={addFilter} className="secondary-link">
+                          <Plus size={14} /> Add rule
+                        </button>
+                      </div>
+                      {filters.length === 0 ? (
+                        <button type="button" onClick={addFilter} className="empty-filter mt-6">
+                          <Filter size={20} />
+                          <span className="font-semibold">
+                            No filters — every record will count
+                          </span>
+                          <span className="text-xs text-[var(--muted)]">
+                            Add a rule to narrow the data.
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="mt-6 space-y-3">
+                          {filters.map((filter, index) => {
+                            const suggestions = preview?.fieldValues[filter.field] ?? [];
+                            return (
+                              <div key={filter.id} className="filter-row">
+                                <div className="mb-2 flex items-center justify-between sm:hidden">
+                                  <span className="text-xs font-semibold text-[var(--muted)]">
+                                    Rule {index + 1}
+                                  </span>
+                                </div>
+                                <select
+                                  value={filter.field}
+                                  onChange={(event) =>
+                                    setFilters((current) =>
+                                      current.map((item) =>
+                                        item.id === filter.id
+                                          ? { ...item, field: event.target.value }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                  className="field-control"
+                                >
+                                  {fields.map((field) => (
+                                    <option key={field.path} value={field.path}>
+                                      {field.path}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={filter.operator}
+                                  onChange={(event) =>
+                                    setFilters((current) =>
+                                      current.map((item) =>
+                                        item.id === filter.id
+                                          ? {
+                                              ...item,
+                                              operator: event.target.value as FilterOperator,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                  className="field-control"
+                                >
+                                  {filterOperators.map((operator) => (
+                                    <option key={operator.value} value={operator.value}>
+                                      {operator.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {!["is_empty", "is_not_empty"].includes(filter.operator) ? (
+                                  <div className="relative min-w-0">
+                                    <input
+                                      value={filter.value}
+                                      onChange={(event) =>
+                                        setFilters((current) =>
+                                          current.map((item) =>
+                                            item.id === filter.id
+                                              ? { ...item, value: event.target.value }
+                                              : item,
+                                          ),
+                                        )
+                                      }
+                                      placeholder="Choose or type a value"
+                                      className="field-control w-full pr-9"
+                                    />
+                                    <button
+                                      type="button"
+                                      aria-label={`Show values for ${filter.field}`}
+                                      onClick={() =>
+                                        setOpenValueMenu((current) =>
+                                          current === filter.id ? null : filter.id,
+                                        )
+                                      }
+                                      className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-white"
+                                    >
+                                      <ChevronDown size={15} />
+                                    </button>
+                                    {openValueMenu === filter.id ? (
+                                      <div className="value-menu">
+                                        {suggestions.length ? (
+                                          suggestions.map((value) => (
+                                            <button
+                                              type="button"
+                                              key={String(value)}
+                                              onClick={() => {
+                                                setFilters((current) =>
+                                                  current.map((item) =>
+                                                    item.id === filter.id
+                                                      ? { ...item, value: String(value) }
+                                                      : item,
+                                                  ),
+                                                );
+                                                setOpenValueMenu(null);
+                                              }}
+                                            >
+                                              {String(value)}
+                                            </button>
+                                          ))
+                                        ) : (
+                                          <span>No values found in the tested rows.</span>
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="field-control flex items-center text-xs text-[var(--muted)]">
+                                    No value needed
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  aria-label={`Remove rule ${index + 1}`}
+                                  onClick={() =>
+                                    setFilters((current) =>
+                                      current.filter((item) => item.id !== filter.id),
+                                    )
+                                  }
+                                  className="icon-button"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void loadPreview({ useFilters: true })}
+                        className="primary-link mt-6"
+                      >
+                        {loading ? (
+                          <LoaderCircle size={14} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                        Test filters against live data
+                      </button>
+                      {preview ? (
+                        <div className="test-result mt-5">
+                          <Check size={16} />
+                          <span>
+                            <strong>{preview.matchingRecords.toLocaleString()}</strong> of{" "}
+                            {preview.totalRecords.toLocaleString()} records pass these rules.
+                          </span>
+                        </div>
+                      ) : null}
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void loadPreview({ useFilters: true })}
-                    className="primary-link mt-6"
-                  >
-                    {loading ? (
-                      <LoaderCircle size={14} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={14} />
-                    )}
-                    Test filters against live data
-                  </button>
-                  {preview ? (
-                    <div className="test-result mt-5">
-                      <Check size={16} />
-                      <span>
-                        <strong>{preview.matchingRecords.toLocaleString()}</strong> of{" "}
-                        {preview.totalRecords.toLocaleString()} records pass these rules.
-                      </span>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
 
@@ -890,14 +1346,31 @@ export function MetricBuilder({
                       ["Source", currentSourceLabel],
                       [
                         "Calculation",
-                        calculation === "count"
-                          ? "Count matching records"
-                          : `${calculation.replaceAll("_", " ")} of ${calculationField}`,
+                        sourceMode === "combine"
+                          ? "Cross-source percentage"
+                          : calculation === "count"
+                            ? "Count matching records"
+                            : calculation === "percentage"
+                              ? `Percentage where ${calculationField} equals ${percentageValue}`
+                              : `${calculation.replaceAll("_", " ")} of ${calculationField}`,
                       ],
-                      ["Filters", filters.length ? `${filters.length} AND rules` : "No filters"],
+                      [
+                        "Filters",
+                        sourceMode === "combine"
+                          ? "Inherited from component metrics"
+                          : filters.length
+                            ? `${filters.length} AND rules`
+                            : "No filters",
+                      ],
                       [
                         "Live result",
-                        preview ? formatMetricValue(preview.metricValue) : "Not tested",
+                        sourceMode === "combine"
+                          ? ratioPreview?.percentage === null || !ratioPreview
+                            ? "Not available"
+                            : `${formatMetricValue(ratioPreview.percentage)}%`
+                          : preview
+                            ? `${formatMetricValue(preview.metricValue)}${calculation === "percentage" ? "%" : ""}`
+                            : "Not tested",
                       ],
                     ].map(([label, value]) => (
                       <div
@@ -912,7 +1385,7 @@ export function MetricBuilder({
                   <button
                     type="button"
                     onClick={publishMetric}
-                    disabled={publishing || !name.trim()}
+                    disabled={publishing || !name.trim() || !testReady}
                     className="primary-link mt-6"
                   >
                     {publishing ? (
@@ -940,7 +1413,7 @@ export function MetricBuilder({
                 <button
                   type="button"
                   onClick={nextStep}
-                  disabled={loading || (step === 0 && !sourceReady) || (step >= 1 && !preview)}
+                  disabled={loading || (step === 0 && !sourceReady) || (step >= 1 && !testReady)}
                   className="primary-link"
                 >
                   Continue <ArrowRight size={14} />
@@ -959,7 +1432,46 @@ export function MetricBuilder({
               </div>
               <span className="live-badge">LIVE</span>
             </div>
-            {preview?.records.length ? (
+            {sourceMode === "combine" ? (
+              <div className="p-4">
+                <div className="space-y-3">
+                  {[numeratorMetric, denominatorMetric].map((component, index) => (
+                    <div
+                      key={index}
+                      className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3"
+                    >
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                        {index === 0 ? "Numerator" : "Denominator"}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {component?.name ?? "Not selected"}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-[var(--muted)]">
+                        {component?.sourceLabel ?? "Choose a published metric"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="mini-stat">
+                    <span>Numerator</span>
+                    <strong>{ratioPreview?.numerator.toLocaleString() ?? "—"}</strong>
+                  </div>
+                  <div className="mini-stat">
+                    <span>Denominator</span>
+                    <strong>{ratioPreview?.denominator.toLocaleString() ?? "—"}</strong>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] p-4">
+                  <span className="text-xs text-[var(--muted)]">Live percentage</span>
+                  <strong className="mt-2 block text-3xl">
+                    {ratioPreview?.percentage === null || !ratioPreview
+                      ? "—"
+                      : `${formatMetricValue(ratioPreview.percentage)}%`}
+                  </strong>
+                </div>
+              </div>
+            ) : preview?.records.length ? (
               <>
                 <div className="flex gap-1 border-b border-[var(--line)] p-3">
                   {preview.records.map((_, index) => (
@@ -980,7 +1492,10 @@ export function MetricBuilder({
                   </div>
                   <div className="mini-stat">
                     <span>Metric result</span>
-                    <strong>{formatMetricValue(preview.metricValue)}</strong>
+                    <strong>
+                      {formatMetricValue(preview.metricValue)}
+                      {calculation === "percentage" ? "%" : ""}
+                    </strong>
                   </div>
                 </div>
                 <div className="max-h-[510px] overflow-y-auto">

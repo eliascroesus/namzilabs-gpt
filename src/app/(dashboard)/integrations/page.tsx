@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
-import { AlertTriangle, ArrowRight, CheckCircle2, Plus, Radio, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Plus, Radio, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
+import { ConnectionCard } from "@/components/connection-card";
 import { connectors } from "@/connectors/registry";
 import type { ProviderId } from "@/connectors/types";
 import { getDb } from "@/db/client";
@@ -60,37 +61,22 @@ export default async function IntegrationsPage() {
           </div>
         ) : (
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {rows.map((connection) => {
-              const healthy =
-                connection.status === "active" &&
-                !["delayed", "unavailable"].includes(connection.freshness);
-              return (
-                <Link
-                  key={connection.id}
-                  href={`/integrations/${connection.id}`}
-                  className="shell-card group flex items-center justify-between gap-4 p-4 transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="provider-mark size-10">
-                      {connectors.find((item) => item.manifest.id === connection.provider)?.manifest
-                        .logo ?? "API"}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold">{connection.name}</p>
-                      <p className="mt-1 truncate text-xs text-[var(--muted)]">
-                        {connection.externalAccountName ?? connection.provider}
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold ${healthy ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-300"}`}
-                  >
-                    {healthy ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
-                    {connection.status}
-                  </span>
-                </Link>
-              );
-            })}
+            {rows.map((connection) => (
+              <ConnectionCard
+                key={connection.id}
+                connection={{
+                  id: connection.id,
+                  name: connection.name,
+                  provider: connection.provider,
+                  accountName: connection.externalAccountName,
+                  status: connection.status,
+                  freshness: connection.freshness,
+                  logo:
+                    connectors.find((item) => item.manifest.id === connection.provider)?.manifest
+                      .logo ?? "API",
+                }}
+              />
+            ))}
           </div>
         )}
       </section>

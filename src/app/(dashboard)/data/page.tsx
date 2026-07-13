@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 export default async function DataPage({
   searchParams,
 }: {
-  searchParams: Promise<{ activityType?: string }>;
+  searchParams: Promise<{ resourceType?: string }>;
 }) {
-  const activityType = (await searchParams).activityType?.slice(0, 100);
-  return <DataExplorer activityType={activityType} />;
+  const resourceType = (await searchParams).resourceType?.slice(0, 500);
+  return <DataExplorer resourceType={resourceType} />;
 }

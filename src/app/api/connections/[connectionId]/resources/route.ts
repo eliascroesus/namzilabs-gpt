@@ -13,6 +13,7 @@ import {
   connectorContext,
   getConnectionForOrganization,
 } from "@/server/connections/service";
+import { reconcileConnectionFully } from "@/server/reconciliation/run";
 
 export async function GET(
   request: Request,
@@ -128,13 +129,6 @@ export async function POST(
         })
         .returning();
       if (!resource) throw new Error("Resource tracking failed");
-      await tx.insert(outboxEvents).values({
-        organizationId: tenant.organizationId,
-        aggregateType: "connection_resource",
-        aggregateId: resource.id,
-        eventName: "namzi/connection.reconcile",
-        payload: { connectionId: connection.id, resourceId: resource.id },
-      });
       await tx
         .update(connections)
         .set({ freshness: "syncing", updatedAt: new Date() })
@@ -146,8 +140,30 @@ export async function POST(
         );
       return resource;
     });
+    let sync:
+      Awaited<ReturnType<typeof reconcileConnectionFully>> | { status: "queued"; message: string };
+    try {
+      sync = await reconcileConnectionFully(db, {
+        organizationId: tenant.organizationId,
+        connectionId: connection.id,
+        resourceId: data.id,
+        callbackUrl: `${env().APP_URL}/api/webhooks/${connection.id}`,
+        maxPages: 20,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Initial source sync failed.";
+      await db.insert(outboxEvents).values({
+        organizationId: tenant.organizationId,
+        aggregateType: "connection_resource",
+        aggregateId: data.id,
+        eventName: "namzi/connection.reconcile",
+        payload: { connectionId: connection.id, resourceId: data.id },
+        lastError: message.slice(0, 300),
+      });
+      sync = { status: "queued", message };
+    }
     return Response.json(
-      { data: { id: data.id, resourceType, status: "syncing" }, requestId },
+      { data: { id: data.id, resourceType, status: sync.status, sync }, requestId },
       { status: 201, headers: { "x-request-id": requestId } },
     );
   } catch (error) {

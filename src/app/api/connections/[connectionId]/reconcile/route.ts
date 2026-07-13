@@ -5,6 +5,8 @@ import { auditLogs, connections, outboxEvents } from "@/db/schema";
 import { errorResponse, requestIdFrom } from "@/lib/errors";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { getConnectionForOrganization } from "@/server/connections/service";
+import { env } from "@/lib/env";
+import { reconcileConnectionFully } from "@/server/reconciliation/run";
 
 export async function POST(
   request: Request,
@@ -17,13 +19,6 @@ export async function POST(
     const db = getDb();
     const connection = await getConnectionForOrganization(db, tenant.organizationId, connectionId);
     await db.transaction(async (tx) => {
-      await tx.insert(outboxEvents).values({
-        organizationId: tenant.organizationId,
-        aggregateType: "connection",
-        aggregateId: connection.id,
-        eventName: "namzi/connection.reconcile",
-        payload: { connectionId: connection.id },
-      });
       await tx
         .update(connections)
         .set({ freshness: "syncing", updatedAt: new Date() })
@@ -43,6 +38,27 @@ export async function POST(
         safeMetadata: { provider: connection.provider },
       });
     });
+    try {
+      const data = await reconcileConnectionFully(db, {
+        organizationId: tenant.organizationId,
+        connectionId: connection.id,
+        callbackUrl: `${env().APP_URL}/api/webhooks/${connection.id}`,
+        maxPages: 20,
+      });
+      return Response.json(
+        { data, requestId },
+        { headers: { "cache-control": "no-store", "x-request-id": requestId } },
+      );
+    } catch (error) {
+      await db.insert(outboxEvents).values({
+        organizationId: tenant.organizationId,
+        aggregateType: "connection",
+        aggregateId: connection.id,
+        eventName: "namzi/connection.reconcile",
+        payload: { connectionId: connection.id },
+        lastError: error instanceof Error ? error.message.slice(0, 300) : "Direct refresh failed",
+      });
+    }
     return Response.json(
       { data: { connectionId: connection.id, status: "queued" }, requestId },
       { status: 202, headers: { "x-request-id": requestId } },

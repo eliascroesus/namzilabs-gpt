@@ -109,5 +109,6 @@ The easiest path is the official Inngest integration in the Vercel Marketplace. 
 5. Confirm the connection detail page shows the Google account as `active`; do not select a specific spreadsheet on the connection.
 6. Open **Metrics** → **Build metric**, select the Google account, and confirm the searchable spreadsheet picker lists every accessible spreadsheet.
 7. Select a spreadsheet and worksheet tab, click **Find new records**, and verify the latest genuine rows and detected columns appear in the data inspector.
-8. Add filters, test the live matching-record count, publish the metric, and verify Inngest receives a resource-scoped reconciliation event for the selected tab.
-9. Open the dashboard and verify the saved metric appears without customer payloads being written to Vercel logs.
+8. Add filters, test the live matching-record count, and publish the metric. Publishing now performs an immediate resource-scoped reconciliation so the dashboard can query the rows as soon as the request completes; Inngest remains the retry and scheduled-refresh layer.
+9. Open **Dashboards** and use **Refresh all data**. Confirm the metric value, Data page source records, pipeline freshness, and 30-day graph update together.
+10. Open the dashboard and verify the saved metric appears without customer payloads being written to Vercel logs.

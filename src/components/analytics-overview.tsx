@@ -1,10 +1,7 @@
 import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
-  Clock3,
   Database,
   Gauge,
   Plus,
@@ -14,90 +11,106 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { DataTrendChart } from "@/components/data-trend-chart";
+import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
-import {
-  activityFacts,
-  connections,
-  deadLetterEvents,
-  metrics,
-  metricVersions,
-  sourceRecords,
-} from "@/db/schema";
+import { connections, deadLetterEvents, metrics, metricVersions, sourceRecords } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { executeSavedMetricVersion } from "@/server/metrics/service";
 
-function dateLabel(value: Date | null): string {
-  return value ? value.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }) : "Never";
+function isPercentageMetric(definition: Record<string, unknown>): boolean {
+  const measure = definition.measure;
+  if (!measure || typeof measure !== "object") return false;
+  const operation = Reflect.get(measure, "operation");
+  return (
+    operation === "percentage" || (operation === "ratio" && Reflect.get(measure, "asPercentage"))
+  );
 }
 
-function metricLabel(value: number | null): string {
+function metricLabel(value: number | null, percentage = false): string {
   if (value === null) return "—";
-  return Number.isInteger(value)
+  const formatted = Number.isInteger(value)
     ? value.toLocaleString()
     : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return percentage ? `${formatted}%` : formatted;
 }
 
 export async function AnalyticsOverview({ title = "Live overview" }: { title?: string }) {
   const tenant = await requireTenantContext();
   const db = getDb();
-  const [connectionRows, recordRows, activityRows, deadLetterRows, metricRows] = await Promise.all([
-    db
-      .select({
-        id: connections.id,
-        name: connections.name,
-        provider: connections.provider,
-        status: connections.status,
-        freshness: connections.freshness,
-        lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
-        lastErrorCode: connections.lastErrorCode,
-      })
-      .from(connections)
-      .where(eq(connections.organizationId, tenant.organizationId))
-      .orderBy(desc(connections.updatedAt)),
-    db
-      .select({ value: count() })
-      .from(sourceRecords)
-      .where(
-        and(
-          eq(sourceRecords.organizationId, tenant.organizationId),
-          eq(sourceRecords.isDeleted, false),
+  const trendDay = sql<string>`(${sourceRecords.occurredAt} AT TIME ZONE 'UTC')::date::text`;
+  const [connectionRows, recordRows, activityRows, deadLetterRows, metricRows, trendRows] =
+    await Promise.all([
+      db
+        .select({
+          id: connections.id,
+          name: connections.name,
+          provider: connections.provider,
+          status: connections.status,
+          freshness: connections.freshness,
+          lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
+          lastErrorCode: connections.lastErrorCode,
+        })
+        .from(connections)
+        .where(eq(connections.organizationId, tenant.organizationId))
+        .orderBy(desc(connections.updatedAt)),
+      db
+        .select({ value: count() })
+        .from(sourceRecords)
+        .where(
+          and(
+            eq(sourceRecords.organizationId, tenant.organizationId),
+            eq(sourceRecords.isDeleted, false),
+          ),
         ),
-      ),
-    db
-      .select({ value: count() })
-      .from(activityFacts)
-      .where(
-        and(
-          eq(activityFacts.organizationId, tenant.organizationId),
-          eq(activityFacts.isDeleted, false),
-          gte(activityFacts.occurredAt, sql`now() - interval '30 days'`),
+      db
+        .select({ value: count() })
+        .from(sourceRecords)
+        .where(
+          and(
+            eq(sourceRecords.organizationId, tenant.organizationId),
+            eq(sourceRecords.isDeleted, false),
+            gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
+          ),
         ),
-      ),
-    db
-      .select({ value: count() })
-      .from(deadLetterEvents)
-      .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
-    db
-      .select({
-        id: metrics.id,
-        name: metrics.name,
-        slug: metrics.slug,
-        versionId: metricVersions.id,
-        formula: metricVersions.formula,
-      })
-      .from(metrics)
-      .innerJoin(
-        metricVersions,
-        and(
-          eq(metricVersions.metricId, metrics.id),
-          eq(metricVersions.version, metrics.currentPublishedVersion),
-          eq(metricVersions.status, "published"),
-        ),
-      )
-      .where(eq(metrics.organizationId, tenant.organizationId))
-      .orderBy(desc(metrics.updatedAt))
-      .limit(8),
-  ]);
+      db
+        .select({ value: count() })
+        .from(deadLetterEvents)
+        .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
+      db
+        .select({
+          id: metrics.id,
+          name: metrics.name,
+          slug: metrics.slug,
+          versionId: metricVersions.id,
+          formula: metricVersions.formula,
+          definition: metricVersions.definition,
+        })
+        .from(metrics)
+        .innerJoin(
+          metricVersions,
+          and(
+            eq(metricVersions.metricId, metrics.id),
+            eq(metricVersions.version, metrics.currentPublishedVersion),
+            eq(metricVersions.status, "published"),
+          ),
+        )
+        .where(eq(metrics.organizationId, tenant.organizationId))
+        .orderBy(desc(metrics.updatedAt))
+        .limit(8),
+      db
+        .select({ date: trendDay, value: count() })
+        .from(sourceRecords)
+        .where(
+          and(
+            eq(sourceRecords.organizationId, tenant.organizationId),
+            eq(sourceRecords.isDeleted, false),
+            gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
+          ),
+        )
+        .groupBy(trendDay)
+        .orderBy(trendDay),
+    ]);
 
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 86_400_000);
@@ -127,6 +140,14 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
   const records = Number(recordRows[0]?.value ?? 0);
   const activities = Number(activityRows[0]?.value ?? 0);
   const deadLetters = Number(deadLetterRows[0]?.value ?? 0);
+  const trendByDate = new Map(trendRows.map((row) => [row.date, Number(row.value)]));
+  const trendPoints = Array.from({ length: 30 }, (_, index) => {
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    day.setUTCDate(day.getUTCDate() - (29 - index));
+    const date = day.toISOString().slice(0, 10);
+    return { date, value: trendByDate.get(date) ?? 0 };
+  });
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -141,6 +162,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
           </p>
         </div>
         <div className="flex gap-2">
+          <RefreshAllButton />
           <Link href="/integrations" className="secondary-link">
             <Database size={15} /> Sources
           </Link>
@@ -154,7 +176,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         {[
           ["Active sources", activeConnections.length, `${connectionRows.length} connected`, Gauge],
           ["Unified records", records, "Available for metrics", Database],
-          ["30-day activity", activities, "Normalized events", Activity],
+          ["30-day records", activities, "Available in this period", Radio],
           [
             "Pipeline issues",
             deadLetters + delayedConnections.length,
@@ -209,7 +231,12 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
                     />
                   </div>
                   <p className="mt-5 text-4xl font-semibold tracking-[-0.04em]">
-                    {metric.error ? "—" : metricLabel(metric.current?.value ?? null)}
+                    {metric.error
+                      ? "—"
+                      : metricLabel(
+                          metric.current?.value ?? null,
+                          isPercentageMetric(metric.definition),
+                        )}
                   </p>
                   <div className="mt-4 flex items-center justify-between gap-3 text-[11px]">
                     {typeof change === "number" ? (
@@ -245,68 +272,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
           </div>
         )}
       </section>
-
-      <section className="shell-card mt-7 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[var(--line)] p-5">
-          <div>
-            <h2 className="text-sm font-semibold">Data pipeline</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Connection state and most recent successful sync.
-            </p>
-          </div>
-          <span className="status-pill">
-            <span className="status-dot bg-[var(--success)]" /> Monitoring
-          </span>
-        </div>
-        {connectionRows.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="bg-[var(--surface-2)] text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Source</th>
-                  <th className="px-5 py-3 font-medium">Provider</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Last successful sync</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connectionRows.map((connection) => {
-                  const healthy =
-                    connection.status === "active" && connection.freshness !== "delayed";
-                  return (
-                    <tr className="border-t border-[var(--line)]" key={connection.id}>
-                      <td className="px-5 py-3 font-medium">
-                        <Link href={`/integrations/${connection.id}`}>{connection.name}</Link>
-                      </td>
-                      <td className="px-5 py-3 capitalize text-[var(--muted)]">
-                        {connection.provider.replaceAll("-", " ")}
-                      </td>
-                      <td className="px-5 py-3">
-                        <span className={healthy ? "text-emerald-300" : "text-amber-300"}>
-                          {healthy ? (
-                            <CheckCircle2 size={13} className="mr-1 inline" />
-                          ) : (
-                            <AlertTriangle size={13} className="mr-1 inline" />
-                          )}
-                          {connection.status} · {connection.freshness}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-[var(--muted)]">
-                        <Clock3 size={13} className="mr-1 inline" />{" "}
-                        {dateLabel(connection.lastSuccessfulSyncAt)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="px-6 py-12 text-center text-sm text-[var(--muted)]">
-            No source accounts connected yet.
-          </div>
-        )}
-      </section>
+      <DataTrendChart points={trendPoints} />
     </div>
   );
 }
