@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prototypeSessionCookieName, verifyPrototypeSession } from "@/server/auth/password-session";
-import { isCsrfExemptPath, trustedRequestOrigin } from "@/server/security/csrf";
+import { trustedRequestOrigin } from "@/server/security/csrf";
 
 function workspaceContentSecurityPolicy(nonce: string): string {
   return [
@@ -32,9 +32,10 @@ function isPublicApi(pathname: string): boolean {
 export default function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isApi = pathname.startsWith("/api/");
+  if (isApi && isPublicApi(pathname)) return NextResponse.next();
+
   if (
     isApi &&
-    !isCsrfExemptPath(pathname) &&
     !trustedRequestOrigin(
       request,
       process.env.APP_URL ?? request.nextUrl.origin,
@@ -52,7 +53,6 @@ export default function proxy(request: NextRequest) {
     process.env.APP_PASSWORD,
   );
   if (isApi) {
-    if (isPublicApi(pathname)) return NextResponse.next();
     if (!authenticated) {
       return NextResponse.json(
         { error: { code: "authentication_required", message: "Sign in to continue." } },
