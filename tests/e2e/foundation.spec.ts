@@ -74,3 +74,21 @@ test("primary public navigation is keyboard reachable", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Privacy Policy" })).toBeVisible();
 });
+
+test("icon navigation expands on desktop and stays usable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await login(page, "/metrics/new");
+  const sidebar = page.locator(".app-sidebar");
+  await expect(sidebar).toHaveCSS("width", "76px");
+  await sidebar.hover();
+  await expect(sidebar).toHaveCSS("width", "238px");
+  await expect(sidebar.getByText("namzilabs.", { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+});

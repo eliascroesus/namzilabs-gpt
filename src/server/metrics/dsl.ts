@@ -79,6 +79,24 @@ const fieldMeasureSchema = z.object({
   field: z.string().min(1).max(240),
 });
 
+export const metricOperandSchema = z
+  .object({
+    operation: z.enum(["count", "count_non_empty", "distinct_count", "sum", "average"]),
+    field: z.string().min(1).max(240).optional(),
+    filters: z.array(filterNodeSchema).max(20).default([]),
+  })
+  .superRefine((operand, context) => {
+    if (operand.operation !== "count" && !operand.field) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose a field for this side of the calculation.",
+        path: ["field"],
+      });
+    }
+  });
+
+export type MetricOperand = z.infer<typeof metricOperandSchema>;
+
 const metricSourceSchema = z.object({
   connectionId: z.uuid(),
   provider: z.string().min(1).max(80),
@@ -96,6 +114,12 @@ const metricSourceSchema = z.object({
 export const measureSchema = z.union([
   z.object({ operation: z.literal("count") }),
   fieldMeasureSchema,
+  z.object({
+    operation: z.literal("percentage"),
+    numerator: metricOperandSchema,
+    denominator: metricOperandSchema,
+  }),
+  // Kept for previously published definitions. New metrics use explicit operands above.
   z.object({
     operation: z.literal("percentage"),
     numeratorFilters: z.array(filterNodeSchema).min(1).max(20),
@@ -129,6 +153,15 @@ export const metricDefinitionSchema = z
       .min(2)
       .max(10)
       .optional(),
+    visualization: z
+      .object({
+        display: z.enum(["kpi", "trend", "pie"]).default("kpi"),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/)
+          .default("#8b5cf6"),
+      })
+      .default({ display: "kpi", color: "#8b5cf6" }),
   })
   .superRefine((definition, context) => {
     if (definition.timeGrain && !definition.timeField) {
@@ -136,6 +169,16 @@ export const metricDefinitionSchema = z
     }
     if (definition.funnelSteps && definition.measure.operation !== "count") {
       context.addIssue({ code: "custom", message: "Funnel steps use count as their measure." });
+    }
+    if (
+      definition.visualization.display === "trend" &&
+      ["percentage", "ratio"].includes(definition.measure.operation)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Percentage and ratio metrics cannot be used as time-series graphs.",
+        path: ["visualization", "display"],
+      });
     }
   });
 

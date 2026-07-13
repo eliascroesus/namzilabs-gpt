@@ -2,18 +2,14 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BrandWordmark } from "@/components/brand-wordmark";
+
 export function PublicHeader() {
   return (
     <header className="border-b border-[var(--line)] bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link href="/" className="flex items-center gap-3 font-bold" aria-label="Namzi Data home">
-          <span className="grid size-9 place-items-center rounded-xl bg-[var(--brand)] text-white">
-            N
-          </span>
-          <span>
-            <span className="block leading-4">Namzi Data</span>
-            <span className="block text-[10px] font-medium text-[var(--muted)]">by Namzi Labs</span>
-          </span>
+        <Link href="/" className="flex items-center" aria-label="Namzilabs home">
+          <BrandWordmark />
         </Link>
         <nav aria-label="Public navigation" className="flex items-center gap-4 text-sm">
           <Link
@@ -45,7 +41,7 @@ export function PublicFooter() {
     <footer className="border-t border-[var(--line)] bg-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-8 text-sm text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold text-[var(--foreground)]">Namzi Data</p>
+          <BrandWordmark />
           <p className="mt-1">Unified, traceable operational analytics.</p>
         </div>
         <nav aria-label="Legal navigation" className="flex flex-wrap gap-x-5 gap-y-2">

@@ -75,6 +75,33 @@ describe("metric SQL compiler", () => {
     expect(compiled.text).toContain("NULLIF");
   });
 
+  it("compiles independently filtered numerator and denominator calculations", () => {
+    const compiled = compileMetric(
+      parseMetricDefinition({
+        dataset: "activity_facts",
+        measure: {
+          operation: "percentage",
+          numerator: {
+            operation: "distinct_count",
+            field: "person_id",
+            filters: [{ field: "activity_type", operator: "equals", value: "meeting.booked" }],
+          },
+          denominator: {
+            operation: "count_non_empty",
+            field: "person_id",
+            filters: [{ field: "activity_type", operator: "equals", value: "email.delivered" }],
+          },
+        },
+      }),
+      organizationId,
+    );
+    expect(compiled.text).toContain("COUNT(DISTINCT");
+    expect(compiled.text).toContain("COUNT(NULLIF(BTRIM");
+    expect(compiled.text).toContain("NULLIF");
+    expect(compiled.parameters).toContain("meeting.booked");
+    expect(compiled.parameters).toContain("email.delivered");
+  });
+
   it("parses cross-source ratios with explicit percentage display semantics", () => {
     const definition = parseMetricDefinition({
       dataset: "source_records",
@@ -86,6 +113,21 @@ describe("metric SQL compiler", () => {
       },
     });
     expect(definition.measure).toMatchObject({ operation: "ratio", asPercentage: true });
+  });
+
+  it("prevents ratio metrics from being configured as trend graphs", () => {
+    expect(() =>
+      parseMetricDefinition({
+        dataset: "source_records",
+        measure: {
+          operation: "ratio",
+          numeratorMetricVersionId: "00000000-0000-4000-8000-000000000010",
+          denominatorMetricVersionId: "00000000-0000-4000-8000-000000000011",
+          asPercentage: true,
+        },
+        visualization: { display: "trend", color: "#8b5cf6" },
+      }),
+    ).toThrow("cannot be used as time-series graphs");
   });
 
   it("scopes spreadsheet metrics to one connection and tab while parameterizing column names", () => {

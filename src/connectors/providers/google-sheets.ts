@@ -93,13 +93,21 @@ export type GooglePreviewFilter = {
   value?: string | number;
 };
 
+export type GooglePreviewOperand = {
+  operation: "count" | "count_non_empty" | "distinct_count" | "sum" | "average";
+  field?: string;
+  filters?: GooglePreviewFilter[];
+};
+
 export type GoogleSheetPreview = {
   records: Record<string, unknown>[];
   fields: InferredField[];
   fieldValues: Record<string, (string | number | boolean)[]>;
   totalRecords: number;
   matchingRecords: number;
-  metricValue: number;
+  metricValue: number | null;
+  numeratorValue?: number;
+  denominatorValue?: number;
   refreshedAt: string;
 };
 
@@ -234,6 +242,8 @@ export async function previewGoogleSheet(
       operation: "count" | "distinct_count" | "sum" | "average" | "percentage";
       field?: string;
       value?: string | number | boolean;
+      numerator?: GooglePreviewOperand;
+      denominator?: GooglePreviewOperand;
     };
     limit?: number;
   },
@@ -278,7 +288,9 @@ export async function previewGoogleSheet(
         .map((record) => record[calculation.field!])
         .filter((value) => value !== null && value !== undefined && value !== "")
     : [];
-  let metricValue = matching.length;
+  let metricValue: number | null = matching.length;
+  let numeratorValue: number | undefined;
+  let denominatorValue: number | undefined;
   if (calculation.operation === "distinct_count") {
     metricValue = new Set(valuesForCalculation.map((value) => String(value))).size;
   } else if (calculation.operation === "sum" || calculation.operation === "average") {
@@ -287,18 +299,44 @@ export async function previewGoogleSheet(
     metricValue =
       calculation.operation === "average" && numbers.length ? total / numbers.length : total;
   } else if (calculation.operation === "percentage") {
-    const expected = String(calculation.value ?? "")
-      .trim()
-      .toLocaleLowerCase();
-    const numerator = calculation.field
-      ? matching.filter(
-          (record) =>
-            String(record[calculation.field!] ?? "")
-              .trim()
-              .toLocaleLowerCase() === expected,
-        ).length
-      : 0;
-    metricValue = matching.length ? (numerator / matching.length) * 100 : 0;
+    const evaluateOperand = (operand: GooglePreviewOperand): number => {
+      const operandRecords = matching.filter((record) =>
+        (operand.filters ?? []).every((filter) => previewFilterPasses(record, filter)),
+      );
+      if (operand.operation === "count") return operandRecords.length;
+      const operandValues = operand.field
+        ? operandRecords
+            .map((record) => record[operand.field!])
+            .filter((value) => value !== null && value !== undefined && value !== "")
+        : [];
+      if (operand.operation === "count_non_empty") return operandValues.length;
+      if (operand.operation === "distinct_count") {
+        return new Set(operandValues.map((value) => String(value))).size;
+      }
+      const numbers = operandValues.map(Number).filter(Number.isFinite);
+      const total = numbers.reduce((sum, value) => sum + value, 0);
+      return operand.operation === "average" && numbers.length ? total / numbers.length : total;
+    };
+    // Legacy previews are still accepted while saved definitions transition to explicit sides.
+    const numeratorOperand = calculation.numerator ?? {
+      operation: "count",
+      filters: calculation.field
+        ? [
+            {
+              field: calculation.field,
+              operator: "equals",
+              value:
+                typeof calculation.value === "boolean"
+                  ? String(calculation.value)
+                  : calculation.value,
+            },
+          ]
+        : [],
+    };
+    const denominatorOperand = calculation.denominator ?? { operation: "count" };
+    numeratorValue = evaluateOperand(numeratorOperand);
+    denominatorValue = evaluateOperand(denominatorOperand);
+    metricValue = denominatorValue ? (numeratorValue / denominatorValue) * 100 : null;
   }
   return {
     records,
@@ -307,6 +345,8 @@ export async function previewGoogleSheet(
     totalRecords: allRecords.length,
     matchingRecords: matching.length,
     metricValue,
+    numeratorValue,
+    denominatorValue,
     refreshedAt: new Date().toISOString(),
   };
 }

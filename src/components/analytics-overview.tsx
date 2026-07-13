@@ -11,12 +11,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import { DataTrendChart } from "@/components/data-trend-chart";
+import { MetricVisualizations, type MetricVisualization } from "@/components/metric-visualizations";
 import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
 import { connections, deadLetterEvents, metrics, metricVersions, sourceRecords } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
-import { executeSavedMetricVersion } from "@/server/metrics/service";
+import { parseMetricDefinition, type MetricDefinition } from "@/server/metrics/dsl";
+import { executeDefinitionSeries, executeSavedMetricVersion } from "@/server/metrics/service";
 
 function isPercentageMetric(definition: Record<string, unknown>): boolean {
   const measure = definition.measure;
@@ -35,101 +36,130 @@ function metricLabel(value: number | null, percentage = false): string {
   return percentage ? `${formatted}%` : formatted;
 }
 
+function sourceLabel(definition: MetricDefinition): string {
+  if (!definition.source) return "Combined metrics";
+  return (
+    [definition.source.spreadsheetName, definition.source.sheetName].filter(Boolean).join(" / ") ||
+    definition.source.provider.replaceAll("-", " ")
+  );
+}
+
 export async function AnalyticsOverview({ title = "Live overview" }: { title?: string }) {
   const tenant = await requireTenantContext();
   const db = getDb();
-  const trendDay = sql<string>`(${sourceRecords.occurredAt} AT TIME ZONE 'UTC')::date::text`;
-  const [connectionRows, recordRows, activityRows, deadLetterRows, metricRows, trendRows] =
-    await Promise.all([
-      db
-        .select({
-          id: connections.id,
-          name: connections.name,
-          provider: connections.provider,
-          status: connections.status,
-          freshness: connections.freshness,
-          lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
-          lastErrorCode: connections.lastErrorCode,
-        })
-        .from(connections)
-        .where(eq(connections.organizationId, tenant.organizationId))
-        .orderBy(desc(connections.updatedAt)),
-      db
-        .select({ value: count() })
-        .from(sourceRecords)
-        .where(
-          and(
-            eq(sourceRecords.organizationId, tenant.organizationId),
-            eq(sourceRecords.isDeleted, false),
-          ),
+  const [connectionRows, recordRows, activityRows, deadLetterRows, metricRows] = await Promise.all([
+    db
+      .select({
+        id: connections.id,
+        name: connections.name,
+        provider: connections.provider,
+        status: connections.status,
+        freshness: connections.freshness,
+        lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
+        lastErrorCode: connections.lastErrorCode,
+      })
+      .from(connections)
+      .where(eq(connections.organizationId, tenant.organizationId))
+      .orderBy(desc(connections.updatedAt)),
+    db
+      .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
         ),
-      db
-        .select({ value: count() })
-        .from(sourceRecords)
-        .where(
-          and(
-            eq(sourceRecords.organizationId, tenant.organizationId),
-            eq(sourceRecords.isDeleted, false),
-            gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
-          ),
+      ),
+    db
+      .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+          gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
         ),
-      db
-        .select({ value: count() })
-        .from(deadLetterEvents)
-        .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
-      db
-        .select({
-          id: metrics.id,
-          name: metrics.name,
-          slug: metrics.slug,
-          versionId: metricVersions.id,
-          formula: metricVersions.formula,
-          definition: metricVersions.definition,
-        })
-        .from(metrics)
-        .innerJoin(
-          metricVersions,
-          and(
-            eq(metricVersions.metricId, metrics.id),
-            eq(metricVersions.version, metrics.currentPublishedVersion),
-            eq(metricVersions.status, "published"),
-          ),
-        )
-        .where(eq(metrics.organizationId, tenant.organizationId))
-        .orderBy(desc(metrics.updatedAt))
-        .limit(8),
-      db
-        .select({ date: trendDay, value: count() })
-        .from(sourceRecords)
-        .where(
-          and(
-            eq(sourceRecords.organizationId, tenant.organizationId),
-            eq(sourceRecords.isDeleted, false),
-            gte(sourceRecords.occurredAt, sql`now() - interval '30 days'`),
-          ),
-        )
-        .groupBy(trendDay)
-        .orderBy(trendDay),
-    ]);
+      ),
+    db
+      .select({ value: count() })
+      .from(deadLetterEvents)
+      .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
+    db
+      .select({
+        id: metrics.id,
+        name: metrics.name,
+        slug: metrics.slug,
+        versionId: metricVersions.id,
+        formula: metricVersions.formula,
+        definition: metricVersions.definition,
+      })
+      .from(metrics)
+      .innerJoin(
+        metricVersions,
+        and(
+          eq(metricVersions.metricId, metrics.id),
+          eq(metricVersions.version, metrics.currentPublishedVersion),
+          eq(metricVersions.status, "published"),
+        ),
+      )
+      .where(eq(metrics.organizationId, tenant.organizationId))
+      .orderBy(desc(metrics.updatedAt))
+      .limit(12),
+  ]);
 
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 86_400_000);
   const evaluatedMetrics = await Promise.all(
     metricRows.map(async (metric) => {
       try {
-        const result = await executeSavedMetricVersion(
-          db,
-          tenant.organizationId,
-          metric.versionId,
-          {
+        const definition = parseMetricDefinition(metric.definition);
+        const trendEligible = !["percentage", "ratio"].includes(definition.measure.operation);
+        const [result, trendResult] = await Promise.all([
+          executeSavedMetricVersion(db, tenant.organizationId, metric.versionId, {
             start,
             end,
             timezone: "UTC",
-          },
+          }),
+          trendEligible
+            ? executeDefinitionSeries(
+                {
+                  ...definition,
+                  timeField: definition.timeField ?? "occurred_at",
+                  timeGrain: "day",
+                  groupBy: [],
+                  comparison: "none",
+                },
+                tenant.organizationId,
+                { start, end, timezone: "UTC" },
+              )
+            : Promise.resolve([]),
+        ]);
+        const trendValues = new Map(
+          trendResult.map((row) => [
+            new Date(String(row.time_bucket)).toISOString().slice(0, 10),
+            Number(row.value ?? 0),
+          ]),
         );
-        return { ...metric, ...result, error: false };
+        const points = Array.from({ length: 30 }, (_, index) => {
+          const day = new Date(end);
+          day.setUTCHours(0, 0, 0, 0);
+          day.setUTCDate(day.getUTCDate() - (29 - index));
+          const date = day.toISOString().slice(0, 10);
+          return { date, value: trendValues.get(date) ?? 0 };
+        });
+        return { ...metric, definition, ...result, points, trendEligible, error: false };
       } catch {
-        return { ...metric, current: null, previous: null, changePercent: null, error: true };
+        const definition = parseMetricDefinition(metric.definition);
+        return {
+          ...metric,
+          definition,
+          current: null,
+          previous: null,
+          changePercent: null,
+          points: [],
+          trendEligible: false,
+          error: true,
+        };
       }
     }),
   );
@@ -140,14 +170,17 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
   const records = Number(recordRows[0]?.value ?? 0);
   const activities = Number(activityRows[0]?.value ?? 0);
   const deadLetters = Number(deadLetterRows[0]?.value ?? 0);
-  const trendByDate = new Map(trendRows.map((row) => [row.date, Number(row.value)]));
-  const trendPoints = Array.from({ length: 30 }, (_, index) => {
-    const day = new Date();
-    day.setUTCHours(0, 0, 0, 0);
-    day.setUTCDate(day.getUTCDate() - (29 - index));
-    const date = day.toISOString().slice(0, 10);
-    return { date, value: trendByDate.get(date) ?? 0 };
-  });
+  const visualizations: MetricVisualization[] = evaluatedMetrics.map((metric) => ({
+    id: metric.id,
+    name: metric.name,
+    sourceLabel: sourceLabel(metric.definition),
+    value: metric.current?.value ?? null,
+    percentage: isPercentageMetric(metric.definition),
+    trendEligible: metric.trendEligible,
+    preferred: metric.definition.visualization.display,
+    color: metric.definition.visualization.color,
+    points: metric.points,
+  }));
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -215,7 +248,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
         </div>
         {evaluatedMetrics.length ? (
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {evaluatedMetrics.map((metric) => {
+            {evaluatedMetrics.slice(0, 8).map((metric) => {
               const change = metric.changePercent;
               const positive = typeof change === "number" && change >= 0;
               return (
@@ -272,7 +305,7 @@ export async function AnalyticsOverview({ title = "Live overview" }: { title?: s
           </div>
         )}
       </section>
-      <DataTrendChart points={trendPoints} />
+      <MetricVisualizations metrics={visualizations} />
     </div>
   );
 }

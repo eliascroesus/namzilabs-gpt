@@ -65,10 +65,13 @@ type Preview = {
   fieldValues: Record<string, (string | number | boolean)[]>;
   totalRecords: number;
   matchingRecords: number;
-  metricValue: number;
+  metricValue: number | null;
+  numeratorValue?: number;
+  denominatorValue?: number;
   refreshedAt: string;
 };
 type Calculation = "count" | "distinct_count" | "sum" | "average" | "percentage";
+type OperandOperation = "count" | "count_non_empty" | "distinct_count" | "sum" | "average";
 type FilterOperator =
   | "equals"
   | "not_equals"
@@ -81,7 +84,9 @@ type FilterOperator =
   | "is_empty"
   | "is_not_empty";
 type FilterRow = { id: string; field: string; operator: FilterOperator; value: string };
+type RatioOperand = { operation: OperandOperation; field: string; filters: FilterRow[] };
 type RatioPreview = { numerator: number; denominator: number; percentage: number | null };
+type VisualizationDisplay = "kpi" | "trend" | "pie";
 
 const steps = [
   { label: "Source", detail: "App, account, and data", icon: Database },
@@ -136,6 +141,258 @@ function formatMetricValue(value: number): string {
     : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function filterPasses(record: Record<string, unknown>, filter: FilterRow): boolean {
+  const current = record[filter.field];
+  const empty = current === null || current === undefined || current === "";
+  if (filter.operator === "is_empty") return empty;
+  if (filter.operator === "is_not_empty") return !empty;
+  const left = String(current ?? "").trim();
+  const right = filter.value.trim();
+  const normalizedLeft = left.toLocaleLowerCase();
+  const normalizedRight = right.toLocaleLowerCase();
+  if (filter.operator === "equals") return normalizedLeft === normalizedRight;
+  if (filter.operator === "not_equals") return normalizedLeft !== normalizedRight;
+  if (filter.operator === "contains") return normalizedLeft.includes(normalizedRight);
+  if (filter.operator === "not_contains") return !normalizedLeft.includes(normalizedRight);
+  if (filter.operator === "starts_with") return normalizedLeft.startsWith(normalizedRight);
+  if (filter.operator === "ends_with") return normalizedLeft.endsWith(normalizedRight);
+  const leftNumber = Number(current);
+  const rightNumber = Number(filter.value);
+  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) return false;
+  return filter.operator === "greater_than" ? leftNumber > rightNumber : leftNumber < rightNumber;
+}
+
+function evaluateOperand(records: Record<string, unknown>[], operand: RatioOperand): number {
+  const matching = records.filter((record) =>
+    operand.filters.every((filter) => filterPasses(record, filter)),
+  );
+  if (operand.operation === "count") return matching.length;
+  const values = matching
+    .map((record) => record[operand.field])
+    .filter((value) => value !== null && value !== undefined && value !== "");
+  if (operand.operation === "count_non_empty") return values.length;
+  if (operand.operation === "distinct_count") {
+    return new Set(values.map((value) => String(value))).size;
+  }
+  const numbers = values.map(Number).filter(Number.isFinite);
+  const sum = numbers.reduce((total, value) => total + value, 0);
+  return operand.operation === "average" && numbers.length ? sum / numbers.length : sum;
+}
+
+function OperandCalculationCard({
+  label,
+  description,
+  operand,
+  fields,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  operand: RatioOperand;
+  fields: DataField[];
+  onChange: (operand: RatioOperand) => void;
+}) {
+  const needsField = operand.operation !== "count";
+  const availableFields = fields.filter((field) =>
+    ["sum", "average"].includes(operand.operation) ? field.type === "number" : true,
+  );
+  return (
+    <section className="ratio-side-card">
+      <div className="flex items-center gap-3">
+        <span className="ratio-side-badge">{label === "Numerator" ? "A" : "B"}</span>
+        <div>
+          <h4 className="text-sm font-semibold">{label}</h4>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">{description}</p>
+        </div>
+      </div>
+      <label className="mt-4 block">
+        <span className="field-label">Calculation</span>
+        <select
+          className="field-control mt-2 w-full"
+          value={operand.operation}
+          onChange={(event) => {
+            const operation = event.target.value as OperandOperation;
+            const numericOnly = ["sum", "average"].includes(operation);
+            const nextField = numericOnly
+              ? (fields.find((field) => field.type === "number")?.path ?? "")
+              : operand.field || fields[0]?.path || "";
+            onChange({ ...operand, operation, field: nextField });
+          }}
+        >
+          <option value="count">Count rows</option>
+          <option value="count_non_empty">Count non-empty values</option>
+          <option value="distinct_count">Count unique values</option>
+          <option value="sum">Sum a number column</option>
+          <option value="average">Average a number column</option>
+        </select>
+      </label>
+      {needsField ? (
+        <label className="mt-3 block">
+          <span className="field-label">Column</span>
+          <select
+            className="field-control mt-2 w-full"
+            value={operand.field}
+            onChange={(event) => onChange({ ...operand, field: event.target.value })}
+          >
+            {availableFields.map((field) => (
+              <option key={field.path} value={field.path}>
+                {field.path} · {field.type}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="mt-3 rounded-lg bg-[var(--surface-3)] px-3 py-2 text-xs text-[var(--muted)]">
+          Every row that passes this side&apos;s rules counts once.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OperandRulesCard({
+  label,
+  operand,
+  fields,
+  fieldValues,
+  onChange,
+}: {
+  label: string;
+  operand: RatioOperand;
+  fields: DataField[];
+  fieldValues: Preview["fieldValues"];
+  onChange: (operand: RatioOperand) => void;
+}) {
+  const [openRule, setOpenRule] = useState<string | null>(null);
+  function updateRule(id: string, patch: Partial<FilterRow>) {
+    onChange({
+      ...operand,
+      filters: operand.filters.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    });
+  }
+  return (
+    <section className="ratio-side-card">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">{label} rules</h4>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {operand.filters.length ? `${operand.filters.length} AND rule(s)` : "All source rows"}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-link"
+          onClick={() =>
+            onChange({
+              ...operand,
+              filters: [
+                ...operand.filters,
+                {
+                  id: crypto.randomUUID(),
+                  field: fields[0]?.path ?? "",
+                  operator: "equals",
+                  value: "",
+                },
+              ],
+            })
+          }
+        >
+          <Plus size={14} /> Add rule
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {operand.filters.length ? (
+          operand.filters.map((rule) => (
+            <div className="ratio-rule" key={rule.id}>
+              <select
+                className="field-control"
+                value={rule.field}
+                onChange={(event) => updateRule(rule.id, { field: event.target.value, value: "" })}
+              >
+                {fields.map((field) => (
+                  <option key={field.path} value={field.path}>
+                    {field.path}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="field-control"
+                value={rule.operator}
+                onChange={(event) =>
+                  updateRule(rule.id, { operator: event.target.value as FilterOperator })
+                }
+              >
+                {filterOperators.map((operator) => (
+                  <option key={operator.value} value={operator.value}>
+                    {operator.label}
+                  </option>
+                ))}
+              </select>
+              {!["is_empty", "is_not_empty"].includes(rule.operator) ? (
+                <div className="relative min-w-0">
+                  <input
+                    className="field-control w-full pr-9"
+                    value={rule.value}
+                    placeholder="Choose or type value"
+                    onChange={(event) => updateRule(rule.id, { value: event.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-white"
+                    aria-label={`Show values for ${rule.field}`}
+                    onClick={() => setOpenRule((current) => (current === rule.id ? null : rule.id))}
+                  >
+                    <ChevronDown size={15} />
+                  </button>
+                  {openRule === rule.id ? (
+                    <div className="value-menu">
+                      {(fieldValues[rule.field] ?? []).length ? (
+                        (fieldValues[rule.field] ?? []).map((value) => (
+                          <button
+                            type="button"
+                            key={String(value)}
+                            onClick={() => {
+                              updateRule(rule.id, { value: String(value) });
+                              setOpenRule(null);
+                            }}
+                          >
+                            {String(value)}
+                          </button>
+                        ))
+                      ) : (
+                        <span>No tested values found.</span>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="field-control text-xs text-[var(--muted)]">No value needed</div>
+              )}
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Remove ${label.toLocaleLowerCase()} rule`}
+                onClick={() =>
+                  onChange({
+                    ...operand,
+                    filters: operand.filters.filter((item) => item.id !== rule.id),
+                  })
+                }
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-lg border border-dashed border-[var(--line)] px-4 py-6 text-center text-xs text-[var(--muted)]">
+            No rules — all source rows are included on this side.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function InfoTooltip({ label }: { label: string }) {
   return (
     <span className="tooltip-anchor ml-1 inline-flex align-middle" tabIndex={0}>
@@ -175,10 +432,21 @@ export function MetricBuilder({
   const [selectedRecord, setSelectedRecord] = useState(0);
   const [calculation, setCalculation] = useState<Calculation>("count");
   const [calculationField, setCalculationField] = useState("");
-  const [percentageValue, setPercentageValue] = useState("");
+  const [numeratorOperand, setNumeratorOperand] = useState<RatioOperand>({
+    operation: "count",
+    field: "",
+    filters: [],
+  });
+  const [denominatorOperand, setDenominatorOperand] = useState<RatioOperand>({
+    operation: "count",
+    field: "",
+    filters: [],
+  });
   const [uniqueKeyField, setUniqueKeyField] = useState("");
   const [timestampField, setTimestampField] = useState("");
   const [filters, setFilters] = useState<FilterRow[]>([]);
+  const [visualization, setVisualization] = useState<VisualizationDisplay>("kpi");
+  const [visualizationColor, setVisualizationColor] = useState("#8b5cf6");
   const [name, setName] = useState("New metric");
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -241,6 +509,25 @@ export function MetricBuilder({
         })),
     [fields, filters],
   );
+
+  function operandPayload(operand: RatioOperand) {
+    return {
+      operation: operand.operation,
+      ...(operand.operation !== "count" && operand.field ? { field: operand.field } : {}),
+      filters: operand.filters.map((filter) => ({
+        field: filter.field,
+        operator: filter.operator,
+        ...(!["is_empty", "is_not_empty"].includes(filter.operator)
+          ? {
+              value:
+                fields.find((field) => field.path === filter.field)?.type === "number"
+                  ? Number(filter.value)
+                  : filter.value,
+            }
+          : {}),
+      })),
+    };
+  }
 
   async function loadSpreadsheets(target: MetricConnection, query = "") {
     setLoading(true);
@@ -325,7 +612,12 @@ export function MetricBuilder({
             calculation: {
               operation: calculation,
               ...(calculation !== "count" && calculationField ? { field: calculationField } : {}),
-              ...(calculation === "percentage" ? { value: percentageValue } : {}),
+              ...(calculation === "percentage"
+                ? {
+                    numerator: operandPayload(numeratorOperand),
+                    denominator: operandPayload(denominatorOperand),
+                  }
+                : {}),
             },
           }),
         });
@@ -339,7 +631,13 @@ export function MetricBuilder({
         setPreview(result.data);
         if (!calculationField) {
           const numeric = result.data.fields.find((field) => field.type === "number");
-          setCalculationField(numeric?.path ?? result.data.fields[0]?.path ?? "");
+          const defaultField = numeric?.path ?? result.data.fields[0]?.path ?? "";
+          setCalculationField(defaultField);
+          setNumeratorOperand((current) => ({ ...current, field: current.field || defaultField }));
+          setDenominatorOperand((current) => ({
+            ...current,
+            field: current.field || defaultField,
+          }));
         }
         return;
       }
@@ -353,8 +651,30 @@ export function MetricBuilder({
       if (!response.ok) throw new Error(result.error?.message ?? "Could not test this source.");
       const records = result.data ?? [];
       const loadedFields = inferClientFields(records);
+      const defaultField =
+        loadedFields.find((field) => field.type === "number")?.path ?? loadedFields[0]?.path ?? "";
+      if (!calculationField) setCalculationField(defaultField);
+      setNumeratorOperand((current) => ({ ...current, field: current.field || defaultField }));
+      setDenominatorOperand((current) => ({ ...current, field: current.field || defaultField }));
+      const baseMatching = records.filter((record) =>
+        (options.useFilters ? filters : []).every((filter) => filterPasses(record, filter)),
+      );
+      let metricValue: number | null = baseMatching.length;
+      let numeratorValue: number | undefined;
+      let denominatorValue: number | undefined;
+      if (calculation === "percentage") {
+        numeratorValue = evaluateOperand(baseMatching, numeratorOperand);
+        denominatorValue = evaluateOperand(baseMatching, denominatorOperand);
+        metricValue = denominatorValue ? (numeratorValue / denominatorValue) * 100 : null;
+      } else if (calculation !== "count") {
+        metricValue = evaluateOperand(baseMatching, {
+          operation: calculation,
+          field: calculationField,
+          filters: [],
+        });
+      }
       setPreview({
-        records,
+        records: baseMatching.slice(-3),
         fields: loadedFields,
         fieldValues: Object.fromEntries(
           loadedFields.map((field) => [
@@ -374,8 +694,10 @@ export function MetricBuilder({
           ]),
         ),
         totalRecords: records.length,
-        matchingRecords: records.length,
-        metricValue: records.length,
+        matchingRecords: baseMatching.length,
+        metricValue,
+        numeratorValue,
+        denominatorValue,
         refreshedAt: new Date().toISOString(),
       });
     } catch (caught) {
@@ -465,6 +787,7 @@ export function MetricBuilder({
               filters: [],
               groupBy: [],
               comparison: "previous_period",
+              visualization: { display: visualization, color: visualizationColor },
             },
           }),
         });
@@ -520,23 +843,31 @@ export function MetricBuilder({
             : calculation === "percentage"
               ? {
                   operation: "percentage",
-                  numeratorFilters: [
-                    {
-                      field: `data.${calculationField}`,
-                      operator: "equals",
-                      value:
-                        fields.find((item) => item.path === calculationField)?.type === "number"
-                          ? Number(percentageValue)
-                          : percentageValue,
-                    },
-                  ],
-                  denominatorFilters: [],
+                  numerator: {
+                    ...operandPayload(numeratorOperand),
+                    ...(numeratorOperand.field ? { field: `data.${numeratorOperand.field}` } : {}),
+                    filters: operandPayload(numeratorOperand).filters.map((filter) => ({
+                      ...filter,
+                      field: `data.${filter.field}`,
+                    })),
+                  },
+                  denominator: {
+                    ...operandPayload(denominatorOperand),
+                    ...(denominatorOperand.field
+                      ? { field: `data.${denominatorOperand.field}` }
+                      : {}),
+                    filters: operandPayload(denominatorOperand).filters.map((filter) => ({
+                      ...filter,
+                      field: `data.${filter.field}`,
+                    })),
+                  },
                 }
               : { operation: calculation, field: `data.${calculationField}` },
         filters: previewFilters.map((filter) => ({ ...filter, field: `data.${filter.field}` })),
         timeField: "occurred_at",
         groupBy: [],
         comparison: "previous_period",
+        visualization: { display: visualization, color: visualizationColor },
       };
       const response = await fetch("/api/metrics", {
         method: "POST",
@@ -653,6 +984,7 @@ export function MetricBuilder({
                         setSourceMode("combine");
                         setPreview(null);
                         setCalculation("percentage");
+                        if (visualization === "trend") setVisualization("kpi");
                       }}
                       disabled={metricComponents.length < 2}
                       className={`source-option ${sourceMode === "combine" ? "source-option-active" : ""}`}
@@ -1050,15 +1382,20 @@ export function MetricBuilder({
                             ["average", "Average", "Average of a numeric field"],
                             [
                               "percentage",
-                              "Percentage",
-                              "Rows matching a value ÷ all matching rows",
+                              "Percentage / ratio",
+                              "One calculation and rule set ÷ another",
                             ],
                           ] as const
                         ).map(([value, label, detail]) => (
                           <button
                             key={value}
                             type="button"
-                            onClick={() => setCalculation(value)}
+                            onClick={() => {
+                              setCalculation(value);
+                              if (value === "percentage" && visualization === "trend") {
+                                setVisualization("kpi");
+                              }
+                            }}
                             className={`calculation-option ${calculation === value ? "source-option-active" : ""}`}
                           >
                             <BarChart3 size={18} />
@@ -1071,20 +1408,42 @@ export function MetricBuilder({
                           </button>
                         ))}
                       </div>
-                      {calculation !== "count" ? (
+                      {calculation === "percentage" ? (
+                        <div className="mt-6">
+                          <div className="ratio-formula-banner">
+                            <span>A</span>
+                            <strong>÷</strong>
+                            <span>B</span>
+                            <strong>× 100</strong>
+                            <p>
+                              Each side can count rows, count a column, count unique values, sum, or
+                              average—and each side gets its own rules.
+                            </p>
+                          </div>
+                          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                            <OperandCalculationCard
+                              label="Numerator"
+                              description="The result you want to measure"
+                              operand={numeratorOperand}
+                              fields={fields}
+                              onChange={setNumeratorOperand}
+                            />
+                            <OperandCalculationCard
+                              label="Denominator"
+                              description="The total or comparison base"
+                              operand={denominatorOperand}
+                              fields={fields}
+                              onChange={setDenominatorOperand}
+                            />
+                          </div>
+                        </div>
+                      ) : calculation !== "count" ? (
                         <div className="mt-6 grid gap-4 sm:grid-cols-2">
                           <label>
-                            <span className="field-label">
-                              {calculation === "percentage"
-                                ? "Success field"
-                                : "Field to calculate"}
-                            </span>
+                            <span className="field-label">Field to calculate</span>
                             <select
                               value={calculationField}
-                              onChange={(event) => {
-                                setCalculationField(event.target.value);
-                                setPercentageValue("");
-                              }}
+                              onChange={(event) => setCalculationField(event.target.value)}
                               className="field-control mt-2 w-full"
                             >
                               {fields
@@ -1100,23 +1459,6 @@ export function MetricBuilder({
                                 ))}
                             </select>
                           </label>
-                          {calculation === "percentage" ? (
-                            <label>
-                              <span className="field-label">Value that counts as success</span>
-                              <input
-                                value={percentageValue}
-                                onChange={(event) => setPercentageValue(event.target.value)}
-                                list="percentage-values"
-                                className="field-control mt-2 w-full"
-                                placeholder="Choose or type a value"
-                              />
-                              <datalist id="percentage-values">
-                                {(preview?.fieldValues[calculationField] ?? []).map((value) => (
-                                  <option key={String(value)} value={String(value)} />
-                                ))}
-                              </datalist>
-                            </label>
-                          ) : null}
                         </div>
                       ) : null}
                       <button
@@ -1148,179 +1490,236 @@ export function MetricBuilder({
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-semibold">
-                            Only include the records you want
-                          </h3>
-                          <p className="mt-1 text-sm text-[var(--muted)]">
-                            All rules use AND logic. Every rule must pass for a row to count.
-                          </p>
-                        </div>
-                        <button type="button" onClick={addFilter} className="secondary-link">
-                          <Plus size={14} /> Add rule
-                        </button>
-                      </div>
-                      {filters.length === 0 ? (
-                        <button type="button" onClick={addFilter} className="empty-filter mt-6">
-                          <Filter size={20} />
-                          <span className="font-semibold">
-                            No filters — every record will count
-                          </span>
-                          <span className="text-xs text-[var(--muted)]">
-                            Add a rule to narrow the data.
-                          </span>
-                        </button>
+                      {calculation === "percentage" ? (
+                        <>
+                          <div>
+                            <h3 className="text-lg font-semibold">
+                              Define both sides of the ratio
+                            </h3>
+                            <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">
+                              Numerator rules only affect A. Denominator rules only affect B. Leave
+                              either side empty to use every source row for that side.
+                            </p>
+                          </div>
+                          <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                            <OperandRulesCard
+                              label="Numerator"
+                              operand={numeratorOperand}
+                              fields={fields}
+                              fieldValues={preview?.fieldValues ?? {}}
+                              onChange={setNumeratorOperand}
+                            />
+                            <OperandRulesCard
+                              label="Denominator"
+                              operand={denominatorOperand}
+                              fields={fields}
+                              fieldValues={preview?.fieldValues ?? {}}
+                              onChange={setDenominatorOperand}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void loadPreview({ useFilters: true })}
+                            className="primary-link mt-6"
+                          >
+                            {loading ? (
+                              <LoaderCircle size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            Test A ÷ B against live data
+                          </button>
+                          {preview ? (
+                            <div className="test-result mt-5">
+                              <Check size={16} />
+                              <span>
+                                Live result:{" "}
+                                <strong>
+                                  {preview.metricValue === null
+                                    ? "Not available (B is zero)"
+                                    : `${formatMetricValue(preview.metricValue)}%`}
+                                </strong>
+                              </span>
+                            </div>
+                          ) : null}
+                        </>
                       ) : (
-                        <div className="mt-6 space-y-3">
-                          {filters.map((filter, index) => {
-                            const suggestions = preview?.fieldValues[filter.field] ?? [];
-                            return (
-                              <div key={filter.id} className="filter-row">
-                                <div className="mb-2 flex items-center justify-between sm:hidden">
-                                  <span className="text-xs font-semibold text-[var(--muted)]">
-                                    Rule {index + 1}
-                                  </span>
-                                </div>
-                                <select
-                                  value={filter.field}
-                                  onChange={(event) =>
-                                    setFilters((current) =>
-                                      current.map((item) =>
-                                        item.id === filter.id
-                                          ? { ...item, field: event.target.value }
-                                          : item,
-                                      ),
-                                    )
-                                  }
-                                  className="field-control"
-                                >
-                                  {fields.map((field) => (
-                                    <option key={field.path} value={field.path}>
-                                      {field.path}
-                                    </option>
-                                  ))}
-                                </select>
-                                <select
-                                  value={filter.operator}
-                                  onChange={(event) =>
-                                    setFilters((current) =>
-                                      current.map((item) =>
-                                        item.id === filter.id
-                                          ? {
-                                              ...item,
-                                              operator: event.target.value as FilterOperator,
-                                            }
-                                          : item,
-                                      ),
-                                    )
-                                  }
-                                  className="field-control"
-                                >
-                                  {filterOperators.map((operator) => (
-                                    <option key={operator.value} value={operator.value}>
-                                      {operator.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                {!["is_empty", "is_not_empty"].includes(filter.operator) ? (
-                                  <div className="relative min-w-0">
-                                    <input
-                                      value={filter.value}
+                        <>
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <h3 className="text-lg font-semibold">
+                                Only include the records you want
+                              </h3>
+                              <p className="mt-1 text-sm text-[var(--muted)]">
+                                All rules use AND logic. Every rule must pass for a row to count.
+                              </p>
+                            </div>
+                            <button type="button" onClick={addFilter} className="secondary-link">
+                              <Plus size={14} /> Add rule
+                            </button>
+                          </div>
+                          {filters.length === 0 ? (
+                            <button type="button" onClick={addFilter} className="empty-filter mt-6">
+                              <Filter size={20} />
+                              <span className="font-semibold">
+                                No filters — every record will count
+                              </span>
+                              <span className="text-xs text-[var(--muted)]">
+                                Add a rule to narrow the data.
+                              </span>
+                            </button>
+                          ) : (
+                            <div className="mt-6 space-y-3">
+                              {filters.map((filter, index) => {
+                                const suggestions = preview?.fieldValues[filter.field] ?? [];
+                                return (
+                                  <div key={filter.id} className="filter-row">
+                                    <div className="mb-2 flex items-center justify-between sm:hidden">
+                                      <span className="text-xs font-semibold text-[var(--muted)]">
+                                        Rule {index + 1}
+                                      </span>
+                                    </div>
+                                    <select
+                                      value={filter.field}
                                       onChange={(event) =>
                                         setFilters((current) =>
                                           current.map((item) =>
                                             item.id === filter.id
-                                              ? { ...item, value: event.target.value }
+                                              ? { ...item, field: event.target.value }
                                               : item,
                                           ),
                                         )
                                       }
-                                      placeholder="Choose or type a value"
-                                      className="field-control w-full pr-9"
-                                    />
-                                    <button
-                                      type="button"
-                                      aria-label={`Show values for ${filter.field}`}
-                                      onClick={() =>
-                                        setOpenValueMenu((current) =>
-                                          current === filter.id ? null : filter.id,
+                                      className="field-control"
+                                    >
+                                      {fields.map((field) => (
+                                        <option key={field.path} value={field.path}>
+                                          {field.path}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <select
+                                      value={filter.operator}
+                                      onChange={(event) =>
+                                        setFilters((current) =>
+                                          current.map((item) =>
+                                            item.id === filter.id
+                                              ? {
+                                                  ...item,
+                                                  operator: event.target.value as FilterOperator,
+                                                }
+                                              : item,
+                                          ),
                                         )
                                       }
-                                      className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-white"
+                                      className="field-control"
                                     >
-                                      <ChevronDown size={15} />
-                                    </button>
-                                    {openValueMenu === filter.id ? (
-                                      <div className="value-menu">
-                                        {suggestions.length ? (
-                                          suggestions.map((value) => (
-                                            <button
-                                              type="button"
-                                              key={String(value)}
-                                              onClick={() => {
-                                                setFilters((current) =>
-                                                  current.map((item) =>
-                                                    item.id === filter.id
-                                                      ? { ...item, value: String(value) }
-                                                      : item,
-                                                  ),
-                                                );
-                                                setOpenValueMenu(null);
-                                              }}
-                                            >
-                                              {String(value)}
-                                            </button>
-                                          ))
-                                        ) : (
-                                          <span>No values found in the tested rows.</span>
-                                        )}
+                                      {filterOperators.map((operator) => (
+                                        <option key={operator.value} value={operator.value}>
+                                          {operator.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {!["is_empty", "is_not_empty"].includes(filter.operator) ? (
+                                      <div className="relative min-w-0">
+                                        <input
+                                          value={filter.value}
+                                          onChange={(event) =>
+                                            setFilters((current) =>
+                                              current.map((item) =>
+                                                item.id === filter.id
+                                                  ? { ...item, value: event.target.value }
+                                                  : item,
+                                              ),
+                                            )
+                                          }
+                                          placeholder="Choose or type a value"
+                                          className="field-control w-full pr-9"
+                                        />
+                                        <button
+                                          type="button"
+                                          aria-label={`Show values for ${filter.field}`}
+                                          onClick={() =>
+                                            setOpenValueMenu((current) =>
+                                              current === filter.id ? null : filter.id,
+                                            )
+                                          }
+                                          className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-white"
+                                        >
+                                          <ChevronDown size={15} />
+                                        </button>
+                                        {openValueMenu === filter.id ? (
+                                          <div className="value-menu">
+                                            {suggestions.length ? (
+                                              suggestions.map((value) => (
+                                                <button
+                                                  type="button"
+                                                  key={String(value)}
+                                                  onClick={() => {
+                                                    setFilters((current) =>
+                                                      current.map((item) =>
+                                                        item.id === filter.id
+                                                          ? { ...item, value: String(value) }
+                                                          : item,
+                                                      ),
+                                                    );
+                                                    setOpenValueMenu(null);
+                                                  }}
+                                                >
+                                                  {String(value)}
+                                                </button>
+                                              ))
+                                            ) : (
+                                              <span>No values found in the tested rows.</span>
+                                            )}
+                                          </div>
+                                        ) : null}
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <div className="field-control flex items-center text-xs text-[var(--muted)]">
+                                        No value needed
+                                      </div>
+                                    )}
+                                    <button
+                                      type="button"
+                                      aria-label={`Remove rule ${index + 1}`}
+                                      onClick={() =>
+                                        setFilters((current) =>
+                                          current.filter((item) => item.id !== filter.id),
+                                        )
+                                      }
+                                      className="icon-button"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
                                   </div>
-                                ) : (
-                                  <div className="field-control flex items-center text-xs text-[var(--muted)]">
-                                    No value needed
-                                  </div>
-                                )}
-                                <button
-                                  type="button"
-                                  aria-label={`Remove rule ${index + 1}`}
-                                  onClick={() =>
-                                    setFilters((current) =>
-                                      current.filter((item) => item.id !== filter.id),
-                                    )
-                                  }
-                                  className="icon-button"
-                                >
-                                  <Trash2 size={15} />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void loadPreview({ useFilters: true })}
+                            className="primary-link mt-6"
+                          >
+                            {loading ? (
+                              <LoaderCircle size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            Test filters against live data
+                          </button>
+                          {preview ? (
+                            <div className="test-result mt-5">
+                              <Check size={16} />
+                              <span>
+                                <strong>{preview.matchingRecords.toLocaleString()}</strong> of{" "}
+                                {preview.totalRecords.toLocaleString()} records pass these rules.
+                              </span>
+                            </div>
+                          ) : null}
+                        </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => void loadPreview({ useFilters: true })}
-                        className="primary-link mt-6"
-                      >
-                        {loading ? (
-                          <LoaderCircle size={14} className="animate-spin" />
-                        ) : (
-                          <RefreshCw size={14} />
-                        )}
-                        Test filters against live data
-                      </button>
-                      {preview ? (
-                        <div className="test-result mt-5">
-                          <Check size={16} />
-                          <span>
-                            <strong>{preview.matchingRecords.toLocaleString()}</strong> of{" "}
-                            {preview.totalRecords.toLocaleString()} records pass these rules.
-                          </span>
-                        </div>
-                      ) : null}
                     </>
                   )}
                 </div>
@@ -1341,6 +1740,53 @@ export function MetricBuilder({
                       placeholder="e.g. Qualified leads"
                     />
                   </label>
+                  <div className="mt-6">
+                    <div className="flex items-end justify-between gap-4">
+                      <div>
+                        <span className="field-label">Dashboard display</span>
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          This is the default. You can still choose metrics directly on the
+                          dashboard.
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                        Slice color
+                        <input
+                          type="color"
+                          value={visualizationColor}
+                          onChange={(event) => setVisualizationColor(event.target.value)}
+                          className="h-8 w-10 cursor-pointer rounded border border-[var(--line)] bg-transparent"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      {(
+                        [
+                          ["kpi", "KPI card", "A focused live number"],
+                          ["trend", "Trend graph", "A daily line or bar chart"],
+                          ["pie", "Pie slice", "Combine this with metrics from other sources"],
+                        ] as const
+                      ).map(([display, label, detail]) => {
+                        const disabled =
+                          display === "trend" &&
+                          (sourceMode === "combine" || calculation === "percentage");
+                        return (
+                          <button
+                            key={display}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setVisualization(display)}
+                            className={`visualization-option ${visualization === display ? "visualization-option-active" : ""}`}
+                          >
+                            <span className="text-sm font-semibold">{label}</span>
+                            <span className="mt-1 block text-xs text-[var(--muted)]">
+                              {disabled ? "Not available for ratio metrics" : detail}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div className="mt-6 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
                     {[
                       ["Source", currentSourceLabel],
@@ -1351,16 +1797,26 @@ export function MetricBuilder({
                           : calculation === "count"
                             ? "Count matching records"
                             : calculation === "percentage"
-                              ? `Percentage where ${calculationField} equals ${percentageValue}`
+                              ? `${numeratorOperand.operation.replaceAll("_", " ")} ÷ ${denominatorOperand.operation.replaceAll("_", " ")} × 100`
                               : `${calculation.replaceAll("_", " ")} of ${calculationField}`,
                       ],
                       [
                         "Filters",
                         sourceMode === "combine"
                           ? "Inherited from component metrics"
-                          : filters.length
-                            ? `${filters.length} AND rules`
-                            : "No filters",
+                          : calculation === "percentage"
+                            ? `${numeratorOperand.filters.length} numerator · ${denominatorOperand.filters.length} denominator rules`
+                            : filters.length
+                              ? `${filters.length} AND rules`
+                              : "No filters",
+                      ],
+                      [
+                        "Dashboard",
+                        visualization === "pie"
+                          ? "Available as a pie slice"
+                          : visualization === "trend"
+                            ? "Preferred trend metric"
+                            : "KPI card",
                       ],
                       [
                         "Live result",
@@ -1369,7 +1825,9 @@ export function MetricBuilder({
                             ? "Not available"
                             : `${formatMetricValue(ratioPreview.percentage)}%`
                           : preview
-                            ? `${formatMetricValue(preview.metricValue)}${calculation === "percentage" ? "%" : ""}`
+                            ? preview.metricValue === null
+                              ? "Not available (denominator is zero)"
+                              : `${formatMetricValue(preview.metricValue)}${calculation === "percentage" ? "%" : ""}`
                             : "Not tested",
                       ],
                     ].map(([label, value]) => (
@@ -1485,16 +1943,30 @@ export function MetricBuilder({
                     </button>
                   ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2 border-b border-[var(--line)] p-4">
+                <div
+                  className={`grid gap-2 border-b border-[var(--line)] p-4 ${calculation === "percentage" ? "grid-cols-3" : "grid-cols-2"}`}
+                >
                   <div className="mini-stat">
-                    <span>Matching</span>
-                    <strong>{preview.matchingRecords.toLocaleString()}</strong>
-                  </div>
-                  <div className="mini-stat">
-                    <span>Metric result</span>
+                    <span>{calculation === "percentage" ? "Numerator A" : "Matching"}</span>
                     <strong>
-                      {formatMetricValue(preview.metricValue)}
-                      {calculation === "percentage" ? "%" : ""}
+                      {(calculation === "percentage"
+                        ? preview.numeratorValue
+                        : preview.matchingRecords
+                      )?.toLocaleString() ?? "—"}
+                    </strong>
+                  </div>
+                  {calculation === "percentage" ? (
+                    <div className="mini-stat">
+                      <span>Denominator B</span>
+                      <strong>{preview.denominatorValue?.toLocaleString() ?? "—"}</strong>
+                    </div>
+                  ) : null}
+                  <div className="mini-stat">
+                    <span>{calculation === "percentage" ? "A ÷ B" : "Metric result"}</span>
+                    <strong>
+                      {preview.metricValue === null
+                        ? "—"
+                        : `${formatMetricValue(preview.metricValue)}${calculation === "percentage" ? "%" : ""}`}
                     </strong>
                   </div>
                 </div>

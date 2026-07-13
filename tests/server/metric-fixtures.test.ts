@@ -88,6 +88,25 @@ describe("hand-calculated fixture metrics", () => {
     expect(evaluateFixture(definition, [...records, late], june)).toBe(3);
   });
 
+  it("evaluates a filtered calculation divided by a different filtered calculation", () => {
+    const definition = parseMetricDefinition({
+      dataset: "activity_facts",
+      measure: {
+        operation: "percentage",
+        numerator: {
+          operation: "count",
+          filters: [{ field: "activity_type", operator: "equals", value: "meeting.booked" }],
+        },
+        denominator: {
+          operation: "count_non_empty",
+          field: "person_id",
+          filters: [],
+        },
+      },
+    });
+    expect(evaluateFixture(definition, records)).toBe(60);
+  });
+
   it("returns null for division by zero and missing numeric data", () => {
     expect(safeDivide(5, 0)).toBeNull();
     const definition = parseMetricDefinition({

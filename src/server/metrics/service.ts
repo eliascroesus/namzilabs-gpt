@@ -181,6 +181,24 @@ export async function executeDefinition(
   return { rows, durationMs, matchingCount: Number(matching[0]?.value ?? 0) };
 }
 
+export async function executeDefinitionSeries(
+  definitionInput: unknown,
+  organizationId: string,
+  window: QueryWindow,
+): Promise<Record<string, unknown>[]> {
+  const definition = parseMetricDefinition(definitionInput);
+  if (definition.measure.operation === "ratio") {
+    throw new AppError(
+      "ratio_series_not_supported",
+      "Ratio metrics cannot be displayed as time-series graphs.",
+      400,
+    );
+  }
+  const compiled = compileMetric(definition, organizationId, window);
+  const result = await getSqlClient().unsafe(compiled.text, compiled.parameters as never[]);
+  return Array.from(result) as Record<string, unknown>[];
+}
+
 export async function matchingRecords(
   definitionInput: unknown,
   organizationId: string,

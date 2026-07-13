@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import type { FilterNode, MetricDefinition } from "@/server/metrics/dsl";
+import type { FilterNode, MetricDefinition, MetricOperand } from "@/server/metrics/dsl";
 
 export type MetricComponentOption = {
   metricId: string;
@@ -31,6 +31,7 @@ type EditableFilter = {
     | "is_not_empty";
   value: string;
 };
+type EditableOperand = Omit<MetricOperand, "filters"> & { filters: EditableFilter[] };
 
 const operators: { value: EditableFilter["operator"]; label: string }[] = [
   { value: "equals", label: "Exactly matches" },
@@ -64,6 +65,181 @@ function displayField(field: string): string {
   return field.startsWith("data.") ? field.slice(5) : field;
 }
 
+function initialPercentageOperands(
+  measure: Extract<MetricDefinition["measure"], { operation: "percentage" }>,
+): { numerator: EditableOperand; denominator: EditableOperand } {
+  if ("numerator" in measure) {
+    return {
+      numerator: { ...measure.numerator, filters: simpleFilters(measure.numerator.filters) },
+      denominator: { ...measure.denominator, filters: simpleFilters(measure.denominator.filters) },
+    };
+  }
+  return {
+    numerator: { operation: "count", filters: simpleFilters(measure.numeratorFilters) },
+    denominator: { operation: "count", filters: simpleFilters(measure.denominatorFilters) },
+  };
+}
+
+function FilterEditor({
+  title,
+  rows,
+  fields,
+  onChange,
+}: {
+  title: string;
+  rows: EditableFilter[];
+  fields: string[];
+  onChange: (rows: EditableFilter[]) => void;
+}) {
+  function update(id: string, patch: Partial<EditableFilter>) {
+    onChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+  return (
+    <section className="ratio-side-card">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {rows.length ? `${rows.length} AND rule(s)` : "All rows"}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-link"
+          onClick={() =>
+            onChange([
+              ...rows,
+              {
+                id: crypto.randomUUID(),
+                field: fields[0] ?? "",
+                operator: "equals",
+                value: "",
+              },
+            ])
+          }
+        >
+          <Plus size={14} /> Add rule
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {rows.length ? (
+          rows.map((row) => (
+            <div className="ratio-rule" key={row.id}>
+              <select
+                className="field-control"
+                value={row.field}
+                onChange={(event) => update(row.id, { field: event.target.value })}
+              >
+                {fields.map((field) => (
+                  <option key={field} value={field}>
+                    {displayField(field)}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="field-control"
+                value={row.operator}
+                onChange={(event) =>
+                  update(row.id, { operator: event.target.value as EditableFilter["operator"] })
+                }
+              >
+                {operators.map((operator) => (
+                  <option key={operator.value} value={operator.value}>
+                    {operator.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="field-control"
+                value={row.value}
+                disabled={["is_empty", "is_not_empty"].includes(row.operator)}
+                onChange={(event) => update(row.id, { value: event.target.value })}
+                placeholder="Value"
+              />
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Remove ${title} rule`}
+                onClick={() => onChange(rows.filter((item) => item.id !== row.id))}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-lg border border-dashed border-[var(--line)] px-4 py-6 text-center text-xs text-[var(--muted)]">
+            No rules — this side uses every source row.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function OperandEditor({
+  label,
+  operand,
+  fields,
+  numericFields,
+  onChange,
+}: {
+  label: string;
+  operand: EditableOperand;
+  fields: string[];
+  numericFields: string[];
+  onChange: (operand: EditableOperand) => void;
+}) {
+  const needsField = operand.operation !== "count";
+  const availableFields = ["sum", "average"].includes(operand.operation) ? numericFields : fields;
+  return (
+    <section className="ratio-side-card">
+      <div className="flex items-center gap-3">
+        <span className="ratio-side-badge">{label === "Numerator" ? "A" : "B"}</span>
+        <div>
+          <h3 className="text-sm font-semibold">{label}</h3>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            {label === "Numerator" ? "What happened" : "What it is compared against"}
+          </p>
+        </div>
+      </div>
+      <label className="mt-4 block">
+        <span className="field-label">Calculation</span>
+        <select
+          className="field-control mt-2 w-full"
+          value={operand.operation}
+          onChange={(event) => {
+            const operation = event.target.value as EditableOperand["operation"];
+            const candidates = ["sum", "average"].includes(operation) ? numericFields : fields;
+            onChange({ ...operand, operation, field: operand.field || candidates[0] });
+          }}
+        >
+          <option value="count">Count rows</option>
+          <option value="count_non_empty">Count non-empty values</option>
+          <option value="distinct_count">Count unique values</option>
+          <option value="sum">Sum a number column</option>
+          <option value="average">Average a number column</option>
+        </select>
+      </label>
+      {needsField ? (
+        <label className="mt-3 block">
+          <span className="field-label">Column</span>
+          <select
+            className="field-control mt-2 w-full"
+            value={operand.field ?? ""}
+            onChange={(event) => onChange({ ...operand, field: event.target.value })}
+          >
+            {availableFields.map((field) => (
+              <option key={field} value={field}>
+                {displayField(field)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+    </section>
+  );
+}
+
 export function MetricDetailEditor({
   metric,
   version,
@@ -89,24 +265,21 @@ export function MetricDetailEditor({
   const source = definition.source;
   const originalMeasure = definition.measure;
   const originalOperation = originalMeasure.operation;
-  const initialPercentageFilter =
-    originalOperation === "percentage" && "field" in originalMeasure.numeratorFilters[0]!
-      ? originalMeasure.numeratorFilters[0]
-      : null;
+  const percentageOperands =
+    originalOperation === "percentage" ? initialPercentageOperands(originalMeasure) : null;
   const [name, setName] = useState(metric.name);
   const [description, setDescription] = useState(metric.description);
   const [operation, setOperation] = useState(originalOperation);
   const [field, setField] = useState(
     "field" in originalMeasure
       ? originalMeasure.field
-      : initialPercentageFilter && "field" in initialPercentageFilter
-        ? initialPercentageFilter.field
-        : (Object.keys(source?.fieldTypes ?? {})[0] ?? ""),
+      : (Object.keys(source?.fieldTypes ?? {})[0] ?? ""),
   );
-  const [percentageValue, setPercentageValue] = useState(
-    initialPercentageFilter && "value" in initialPercentageFilter
-      ? String(initialPercentageFilter.value ?? "")
-      : "",
+  const [numeratorOperand, setNumeratorOperand] = useState<EditableOperand>(
+    percentageOperands?.numerator ?? { operation: "count", filters: [] },
+  );
+  const [denominatorOperand, setDenominatorOperand] = useState<EditableOperand>(
+    percentageOperands?.denominator ?? { operation: "count", filters: [] },
   );
   const [numeratorVersionId, setNumeratorVersionId] = useState(
     originalOperation === "ratio" ? originalMeasure.numeratorMetricVersionId : "",
@@ -115,10 +288,17 @@ export function MetricDetailEditor({
     originalOperation === "ratio" ? originalMeasure.denominatorMetricVersionId : "",
   );
   const [filters, setFilters] = useState(() => simpleFilters(definition.filters));
+  const [visualization, setVisualization] = useState(definition.visualization.display);
+  const [visualizationColor, setVisualizationColor] = useState(definition.visualization.color);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fields = useMemo(() => Object.keys(source?.fieldTypes ?? {}), [source?.fieldTypes]);
+  const numericFields = useMemo(
+    () => fields.filter((item) => source?.fieldTypes[item] === "number"),
+    [fields, source?.fieldTypes],
+  );
   const isRatio = operation === "ratio";
   const isPercentage = operation === "percentage" || operation === "ratio";
 
@@ -126,17 +306,32 @@ export function MetricDetailEditor({
     return source?.fieldTypes[fieldName] === "number" ? Number(value) : value;
   }
 
+  function definitionFilters(rows: EditableFilter[]): FilterNode[] {
+    return rows.map((filter) => ({
+      field: filter.field,
+      operator: filter.operator,
+      ...(!["is_empty", "is_not_empty"].includes(filter.operator)
+        ? { value: typedValue(filter.field, filter.value) }
+        : {}),
+    }));
+  }
+
+  function buildOperand(operand: EditableOperand): MetricOperand {
+    return {
+      operation: operand.operation,
+      ...(operand.operation !== "count" ? { field: operand.field } : {}),
+      filters: definitionFilters(operand.filters),
+    };
+  }
+
   function buildDefinition(): MetricDefinition {
     let measure: MetricDefinition["measure"];
-    if (operation === "count") {
-      measure = { operation: "count" };
-    } else if (operation === "percentage") {
+    if (operation === "count") measure = { operation: "count" };
+    else if (operation === "percentage") {
       measure = {
         operation: "percentage",
-        numeratorFilters: [
-          { field, operator: "equals", value: typedValue(field, percentageValue) },
-        ],
-        denominatorFilters: [],
+        numerator: buildOperand(numeratorOperand),
+        denominator: buildOperand(denominatorOperand),
       };
     } else if (operation === "ratio") {
       measure = {
@@ -145,21 +340,12 @@ export function MetricDetailEditor({
         denominatorMetricVersionId: denominatorVersionId,
         asPercentage: true,
       };
-    } else {
-      measure = { operation, field };
-    }
+    } else measure = { operation, field };
     return {
       ...definition,
       measure,
-      filters: isRatio
-        ? []
-        : filters.map((filter) => ({
-            field: filter.field,
-            operator: filter.operator,
-            ...(!["is_empty", "is_not_empty"].includes(filter.operator)
-              ? { value: typedValue(filter.field, filter.value) }
-              : {}),
-          })),
+      filters: isRatio ? [] : definitionFilters(filters),
+      visualization: { display: visualization, color: visualizationColor },
     };
   }
 
@@ -211,6 +397,23 @@ export function MetricDetailEditor({
     }
   }
 
+  async function deleteMetric() {
+    if (!window.confirm(`Delete “${metric.name}” and its history? This cannot be undone.`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/metrics/${metric.id}`, { method: "DELETE" });
+      const result = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok)
+        throw new Error(result.error?.message ?? "The metric could not be deleted.");
+      router.push("/metrics");
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The metric could not be deleted.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-5">
@@ -254,19 +457,26 @@ export function MetricDetailEditor({
               />
             </label>
           </div>
-
           <label className="mt-5 block">
             <span className="field-label">Calculation</span>
             <select
               value={operation}
-              onChange={(event) => setOperation(event.target.value as typeof operation)}
+              onChange={(event) => {
+                const next = event.target.value as typeof operation;
+                setOperation(next);
+                if (["percentage", "ratio"].includes(next) && visualization === "trend") {
+                  setVisualization("kpi");
+                }
+              }}
               className="field-control mt-2 w-full"
             >
               <option value="count">Count records</option>
               <option value="distinct_count">Count unique</option>
               <option value="sum">Sum</option>
               <option value="average">Average</option>
-              <option value="percentage">Percentage within this source</option>
+              <option value="minimum">Minimum</option>
+              <option value="maximum">Maximum</option>
+              <option value="percentage">Percentage / ratio within this source</option>
               {components.length >= 2 ? (
                 <option value="ratio">Percentage across metrics</option>
               ) : null}
@@ -275,181 +485,168 @@ export function MetricDetailEditor({
 
           {isRatio ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label>
-                <span className="field-label">Numerator metric</span>
-                <select
-                  value={numeratorVersionId}
-                  onChange={(event) => setNumeratorVersionId(event.target.value)}
-                  className="field-control mt-2 w-full"
-                >
-                  <option value="">Choose metric</option>
-                  {components.map((component) => (
-                    <option key={component.versionId} value={component.versionId}>
-                      {component.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="field-label">Denominator metric</span>
-                <select
-                  value={denominatorVersionId}
-                  onChange={(event) => setDenominatorVersionId(event.target.value)}
-                  className="field-control mt-2 w-full"
-                >
-                  <option value="">Choose metric</option>
-                  {components.map((component) => (
-                    <option key={component.versionId} value={component.versionId}>
-                      {component.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {[
+                ["Numerator metric", numeratorVersionId, setNumeratorVersionId],
+                ["Denominator metric", denominatorVersionId, setDenominatorVersionId],
+              ].map(([label, value, setter]) => (
+                <label key={String(label)}>
+                  <span className="field-label">{String(label)}</span>
+                  <select
+                    value={String(value)}
+                    onChange={(event) => (setter as (value: string) => void)(event.target.value)}
+                    className="field-control mt-2 w-full"
+                  >
+                    <option value="">Choose metric</option>
+                    {components.map((component) => (
+                      <option key={component.versionId} value={component.versionId}>
+                        {component.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
             </div>
+          ) : operation === "percentage" ? (
+            <>
+              <div className="ratio-formula-banner mt-5">
+                <span>A</span>
+                <strong>÷</strong>
+                <span>B</span>
+                <strong>× 100</strong>
+                <p>Two independent calculations with independent rule sets.</p>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <OperandEditor
+                  label="Numerator"
+                  operand={numeratorOperand}
+                  fields={fields}
+                  numericFields={numericFields}
+                  onChange={setNumeratorOperand}
+                />
+                <OperandEditor
+                  label="Denominator"
+                  operand={denominatorOperand}
+                  fields={fields}
+                  numericFields={numericFields}
+                  onChange={setDenominatorOperand}
+                />
+              </div>
+            </>
           ) : operation !== "count" ? (
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label>
-                <span className="field-label">
-                  {operation === "percentage" ? "Success field" : "Field"}
-                </span>
-                <select
-                  value={field}
-                  onChange={(event) => setField(event.target.value)}
-                  className="field-control mt-2 w-full"
-                >
-                  {fields.map((item) => (
+            <label className="mt-5 block">
+              <span className="field-label">Field</span>
+              <select
+                value={field}
+                onChange={(event) => setField(event.target.value)}
+                className="field-control mt-2 w-full"
+              >
+                {fields
+                  .filter((item) =>
+                    ["sum", "average", "minimum", "maximum"].includes(operation)
+                      ? numericFields.includes(item)
+                      : true,
+                  )
+                  .map((item) => (
                     <option key={item} value={item}>
                       {displayField(item)}
                     </option>
                   ))}
-                </select>
-              </label>
-              {operation === "percentage" ? (
-                <label>
-                  <span className="field-label">Success value</span>
-                  <input
-                    value={percentageValue}
-                    onChange={(event) => setPercentageValue(event.target.value)}
-                    className="field-control mt-2 w-full"
-                    placeholder="e.g. Yes"
-                  />
-                </label>
-              ) : null}
-            </div>
+              </select>
+            </label>
           ) : null}
         </section>
 
         {!isRatio ? (
-          <section className="shell-card p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-base font-semibold">Rules</h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">All rules use AND logic.</p>
-              </div>
-              <button
-                type="button"
-                className="secondary-link"
-                onClick={() =>
-                  setFilters((current) => [
-                    ...current,
-                    {
-                      id: crypto.randomUUID(),
-                      field: fields[0] ?? "",
-                      operator: "equals",
-                      value: "",
-                    },
-                  ])
+          operation === "percentage" ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <FilterEditor
+                title="Numerator rules"
+                rows={numeratorOperand.filters}
+                fields={fields}
+                onChange={(rows) =>
+                  setNumeratorOperand((current) => ({ ...current, filters: rows }))
                 }
-              >
-                <Plus size={14} /> Add rule
-              </button>
+              />
+              <FilterEditor
+                title="Denominator rules"
+                rows={denominatorOperand.filters}
+                fields={fields}
+                onChange={(rows) =>
+                  setDenominatorOperand((current) => ({ ...current, filters: rows }))
+                }
+              />
             </div>
-            <div className="mt-5 space-y-3">
-              {filters.length ? (
-                filters.map((filter) => (
-                  <div key={filter.id} className="filter-row">
-                    <select
-                      value={filter.field}
-                      onChange={(event) =>
-                        setFilters((current) =>
-                          current.map((item) =>
-                            item.id === filter.id ? { ...item, field: event.target.value } : item,
-                          ),
-                        )
-                      }
-                      className="field-control"
-                    >
-                      {fields.map((item) => (
-                        <option key={item} value={item}>
-                          {displayField(item)}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={filter.operator}
-                      onChange={(event) =>
-                        setFilters((current) =>
-                          current.map((item) =>
-                            item.id === filter.id
-                              ? {
-                                  ...item,
-                                  operator: event.target.value as EditableFilter["operator"],
-                                }
-                              : item,
-                          ),
-                        )
-                      }
-                      className="field-control"
-                    >
-                      {operators.map((operator) => (
-                        <option key={operator.value} value={operator.value}>
-                          {operator.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      value={filter.value}
-                      disabled={["is_empty", "is_not_empty"].includes(filter.operator)}
-                      onChange={(event) =>
-                        setFilters((current) =>
-                          current.map((item) =>
-                            item.id === filter.id ? { ...item, value: event.target.value } : item,
-                          ),
-                        )
-                      }
-                      className="field-control"
-                      placeholder="Value"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove rule"
-                      className="icon-button"
-                      onClick={() =>
-                        setFilters((current) => current.filter((item) => item.id !== filter.id))
-                      }
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-dashed border-[var(--line)] p-6 text-center text-xs text-[var(--muted)]">
-                  No rules. Every source record is included.
-                </div>
-              )}
-            </div>
-          </section>
+          ) : (
+            <FilterEditor
+              title="Shared rules"
+              rows={filters}
+              fields={fields}
+              onChange={setFilters}
+            />
+          )
         ) : null}
+
+        <section className="shell-card p-5">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Dashboard display</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">Choose its default visualization.</p>
+            </div>
+            <input
+              type="color"
+              value={visualizationColor}
+              onChange={(event) => setVisualizationColor(event.target.value)}
+              className="h-9 w-12 cursor-pointer rounded border border-[var(--line)] bg-transparent"
+              aria-label="Visualization color"
+            />
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                ["kpi", "KPI card"],
+                ["trend", "Trend graph"],
+                ["pie", "Pie slice"],
+              ] as const
+            ).map(([display, label]) => {
+              const disabled = display === "trend" && isPercentage;
+              return (
+                <button
+                  key={display}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setVisualization(display)}
+                  className={`visualization-option ${visualization === display ? "visualization-option-active" : ""}`}
+                >
+                  <span className="font-semibold">{label}</span>
+                  {disabled ? (
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      Unavailable for ratios
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => void saveMetric()}
-            disabled={saving}
+            disabled={saving || deleting}
             className="primary-link"
           >
             {saving ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={15} />}
             {saving ? "Saving…" : "Save new version"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void deleteMetric()}
+            disabled={saving || deleting}
+            className="danger-link"
+          >
+            {deleting ? <LoaderCircle size={15} className="animate-spin" /> : <Trash2 size={15} />}
+            {deleting ? "Deleting…" : "Delete metric"}
           </button>
           {message ? (
             <span className="inline-flex items-center gap-1 text-xs text-emerald-300">

@@ -1,4 +1,4 @@
-import type { FilterNode, MetricDefinition } from "@/server/metrics/dsl";
+import type { FilterNode, MetricDefinition, MetricOperand } from "@/server/metrics/dsl";
 
 export type FixtureRecord = Record<string, string | number | boolean | null | undefined>;
 
@@ -41,6 +41,23 @@ export function safeDivide(numerator: number, denominator: number): number | nul
   return denominator === 0 ? null : numerator / denominator;
 }
 
+function evaluateOperand(records: FixtureRecord[], operand: MetricOperand): number | null {
+  const selected = matching(records, operand.filters);
+  if (operand.operation === "count") return selected.length;
+  const values = selected
+    .map((record) => record[operand.field!])
+    .filter(
+      (value): value is string | number | boolean =>
+        value !== null && value !== undefined && value !== "",
+    );
+  if (operand.operation === "count_non_empty") return values.length;
+  if (operand.operation === "distinct_count") return new Set(values).size;
+  const numbers = values.map(Number).filter(Number.isFinite);
+  if (!numbers.length) return null;
+  const total = numbers.reduce((sum, value) => sum + value, 0);
+  return operand.operation === "average" ? total / numbers.length : total;
+}
+
 export function evaluateFixture(
   definition: MetricDefinition,
   records: FixtureRecord[],
@@ -60,6 +77,13 @@ export function evaluateFixture(
   const measure = definition.measure;
   if (measure.operation === "count") return selected.length;
   if (measure.operation === "percentage") {
+    if ("numerator" in measure) {
+      const numerator = evaluateOperand(selected, measure.numerator);
+      const denominator = evaluateOperand(selected, measure.denominator);
+      if (numerator === null || denominator === null) return null;
+      const ratio = safeDivide(numerator, denominator);
+      return ratio === null ? null : ratio * 100;
+    }
     const numerator = matching(selected, measure.numeratorFilters).length;
     const denominator = matching(selected, measure.denominatorFilters).length;
     const ratio = safeDivide(numerator, denominator);

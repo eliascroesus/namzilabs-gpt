@@ -7,36 +7,41 @@ import { AppError, errorResponse, requestIdFrom } from "@/lib/errors";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { connectorContext, getConnectionForOrganization } from "@/server/connections/service";
 
+const previewFilterSchema = z.object({
+  field: z.string().min(1).max(200),
+  operator: z.enum([
+    "equals",
+    "not_equals",
+    "contains",
+    "not_contains",
+    "starts_with",
+    "ends_with",
+    "greater_than",
+    "less_than",
+    "is_empty",
+    "is_not_empty",
+  ]),
+  value: z.union([z.string(), z.number()]).optional(),
+});
+
+const previewOperandSchema = z.object({
+  operation: z.enum(["count", "count_non_empty", "distinct_count", "sum", "average"]),
+  field: z.string().min(1).max(200).optional(),
+  filters: z.array(previewFilterSchema).max(20).default([]),
+});
+
 const schema = z.object({
   spreadsheetId: z.string().min(10).max(200),
   sheetName: z.string().trim().min(1).max(200),
   limit: z.number().int().min(1).max(10).default(3),
-  filters: z
-    .array(
-      z.object({
-        field: z.string().min(1).max(200),
-        operator: z.enum([
-          "equals",
-          "not_equals",
-          "contains",
-          "not_contains",
-          "starts_with",
-          "ends_with",
-          "greater_than",
-          "less_than",
-          "is_empty",
-          "is_not_empty",
-        ]),
-        value: z.union([z.string(), z.number()]).optional(),
-      }),
-    )
-    .max(20)
-    .default([]),
+  filters: z.array(previewFilterSchema).max(20).default([]),
   calculation: z
     .object({
       operation: z.enum(["count", "distinct_count", "sum", "average", "percentage"]),
       field: z.string().min(1).max(200).optional(),
       value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+      numerator: previewOperandSchema.optional(),
+      denominator: previewOperandSchema.optional(),
     })
     .default({ operation: "count" }),
 });

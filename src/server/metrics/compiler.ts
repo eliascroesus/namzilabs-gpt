@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/errors";
 import {
   type FilterNode,
+  type MetricOperand,
   type MetricDefinition,
   metricDefinitionSchema,
 } from "@/server/metrics/dsl";
@@ -207,6 +208,28 @@ function compileFilters(
   return filters.map((filter) => compileFilter(definition, filter, parameters));
 }
 
+function operandExpression(
+  definition: MetricDefinition,
+  parameters: ParameterBag,
+  operand: MetricOperand,
+): string {
+  const conditions = compileFilters(definition, parameters, operand.filters);
+  const filterClause = conditions.length ? ` FILTER (WHERE ${conditions.join(" AND ")})` : "";
+  if (operand.operation === "count") return `COUNT(*)${filterClause}`;
+  const field = fieldFor(definition, operand.field!, parameters);
+  if (["sum", "average"].includes(operand.operation) && field.kind !== "number") {
+    throw new AppError("metric_measure_type", "This calculation requires a numeric field.", 400);
+  }
+  if (operand.operation === "count_non_empty") {
+    return `COUNT(NULLIF(BTRIM((${field.sql})::text), ''))${filterClause}`;
+  }
+  if (operand.operation === "distinct_count") {
+    return `COUNT(DISTINCT ${field.sql})${filterClause}`;
+  }
+  const fn = operand.operation === "sum" ? "SUM" : "AVG";
+  return `${fn}(${field.sql})${filterClause}`;
+}
+
 function measureExpression(definition: MetricDefinition, parameters: ParameterBag): string {
   const measure = definition.measure;
   if (definition.funnelSteps) {
@@ -226,6 +249,11 @@ function measureExpression(definition: MetricDefinition, parameters: ParameterBa
     );
   }
   if (measure.operation === "percentage") {
+    if ("numerator" in measure) {
+      const numerator = operandExpression(definition, parameters, measure.numerator);
+      const denominator = operandExpression(definition, parameters, measure.denominator);
+      return `(${numerator})::numeric * 100 / NULLIF((${denominator})::numeric, 0) AS "value"`;
+    }
     const numerator = compileFilters(definition, parameters, measure.numeratorFilters).join(
       " AND ",
     );
@@ -354,7 +382,7 @@ export function describeMetric(definition: MetricDefinition): {
     plainLanguage: `${operation[0]!.toUpperCase()}${operation.slice(1)} of ${label}${grouped}.`,
     formula:
       definition.measure.operation === "percentage"
-        ? "matching numerator records ÷ matching denominator records × 100"
+        ? "numerator calculation ÷ denominator calculation × 100"
         : definition.measure.operation === "ratio"
           ? `${definition.measure.numeratorMetricVersionId} ÷ ${definition.measure.denominatorMetricVersionId}${definition.measure.asPercentage ? " × 100" : ""}`
           : `${operation}(${"field" in definition.measure ? definition.measure.field : "records"})`,
