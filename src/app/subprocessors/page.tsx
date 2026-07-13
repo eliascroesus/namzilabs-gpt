@@ -15,10 +15,6 @@ const subprocessors = [
   },
   { name: "Neon", purpose: "Managed PostgreSQL database hosting, backups and recovery." },
   { name: "Inngest", purpose: "Durable background workflow orchestration and retry execution." },
-  {
-    name: "Sentry",
-    purpose: "Application error monitoring and performance diagnostics with default PII disabled.",
-  },
 ] as const;
 
 export default function SubprocessorsPage() {

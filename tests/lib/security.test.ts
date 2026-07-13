@@ -2,10 +2,30 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { webhookTimestampIsFresh } from "@/connectors/shared";
+import { assertProductionEnvironment, env } from "@/lib/env";
 import { previousEncryptionKeys } from "@/server/credentials/service";
 import { trustedRequestOrigin } from "@/server/security/csrf";
 
 describe("request and credential security", () => {
+  it("accepts a production configuration containing only current required services", () => {
+    const config = {
+      ...env(),
+      APP_ENV: "production" as const,
+      APP_URL: "https://namzilabs.co",
+      APP_PASSWORD: "prototype-test-password",
+      DATABASE_URL:
+        "postgresql://prototype:password@prototype-pooler.neon.tech/namzi?sslmode=require",
+      ENCRYPTION_KEY_BASE64: randomBytes(32).toString("base64"),
+      INNGEST_EVENT_KEY: "inngest-event-key",
+      INNGEST_SIGNING_KEY: "inngest-signing-key",
+      INNGEST_SERVE_ORIGIN: "https://namzilabs.co",
+      GOOGLE_CLIENT_ID: "google-client-id",
+      GOOGLE_CLIENT_SECRET: "google-client-secret",
+    };
+
+    expect(() => assertProductionEnvironment(config)).not.toThrow();
+  });
+
   it("accepts only same-origin browser mutations", () => {
     const request = (origin?: string, fetchSite?: string) => ({
       method: "POST",

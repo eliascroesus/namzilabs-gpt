@@ -22,7 +22,6 @@ const environmentSchema = z.object({
   INNGEST_EVENT_KEY: optionalNonEmptyString,
   INNGEST_SIGNING_KEY: optionalNonEmptyString,
   INNGEST_SERVE_ORIGIN: optionalUrl,
-  NEXT_PUBLIC_SENTRY_DSN: optionalUrl,
   GOOGLE_CLIENT_ID: optionalNonEmptyString,
   GOOGLE_CLIENT_SECRET: optionalNonEmptyString,
   GOOGLE_REDIRECT_URI: z.url().default("https://namzilabs.co/api/integrations/google/callback"),
@@ -52,7 +51,6 @@ export function assertProductionEnvironment(config = env()): void {
     "INNGEST_EVENT_KEY",
     "INNGEST_SIGNING_KEY",
     "INNGEST_SERVE_ORIGIN",
-    "NEXT_PUBLIC_SENTRY_DSN",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
   ] as const;

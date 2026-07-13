@@ -18,7 +18,7 @@ Namzi Data must not publish a contractual SLA until real traffic establishes a r
 Measurements are tenant-scoped, retained for 30 days and available only to an administrator at
 `GET /api/operations/health`. No samples means **unmeasured**, not passing. Provider dashboards must
 also be configured: Inngest backlog/failed runs, Neon database health, Vercel function health and
-Sentry errors/performance.
+Vercel runtime logs.
 
 ## Implemented evidence
 
@@ -44,10 +44,10 @@ These remain open until a human records dated evidence:
       both a primary and backup owner.
 - [ ] Neon production is Launch or higher with separate production, staging and preview branches.
 - [ ] The production history/backup retention is selected and a restore exercise passes.
-- [ ] The prototype password, Inngest, Sentry and every enabled provider use production-only credentials.
+- [ ] The prototype password, Inngest and every enabled provider use production-only credentials.
 - [ ] Google branding and every requested sensitive scope are approved.
 - [ ] Provider production apps, signing secrets, webhooks and callback URLs pass sandbox smoke tests.
-- [ ] Sentry alert ownership and Inngest failed-run/backlog alerts reach an on-call human.
+- [ ] Vercel error alerts and Inngest failed-run/backlog alerts reach an on-call human.
 - [ ] Tenant isolation receives an independent review against a production-like database role.
 - [ ] A representative load test exceeds expected launch traffic with headroom and measured p95s.
 - [ ] Organization access/deletion and provider revocation are rehearsed end-to-end.
