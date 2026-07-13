@@ -104,9 +104,10 @@ The easiest path is the official Inngest integration in the Vercel Marketplace. 
 
 1. Open `https://namzilabs.co`, `/privacy`, `/terms`, `/robots.txt`, and `/sitemap.xml` in a private browser window.
 2. Click **Open workspace**, enter the Vercel `APP_PASSWORD`, and confirm `/overview` opens.
-3. Open **Integrations** → **Google Sheets** → **Continue to Google Sheets**.
+3. Open **Integrations** → **Google Sheets** → **Sign in to Google Sheets**.
 4. Approve the two read-only scopes.
-5. Paste the spreadsheet ID from the URL, enter a range such as `Leads!A:Z`, and choose a stable unique-key column.
-6. Click **Save and preview real rows** and confirm real rows appear.
-7. Confirm the connection detail page shows `active`, then verify Inngest has received the reconciliation event.
-8. Build a metric, open its matching records, and verify that no customer data appears in Vercel logs.
+5. Confirm the connection detail page shows the Google account as `active`; do not select a specific spreadsheet on the connection.
+6. Open **Metrics** → **Build metric**, select the Google account, and confirm the searchable spreadsheet picker lists every accessible spreadsheet.
+7. Select a spreadsheet and worksheet tab, click **Find new records**, and verify the latest genuine rows and detected columns appear in the data inspector.
+8. Add filters, test the live matching-record count, publish the metric, and verify Inngest receives a resource-scoped reconciliation event for the selected tab.
+9. Open the dashboard and verify the saved metric appears without customer payloads being written to Vercel logs.

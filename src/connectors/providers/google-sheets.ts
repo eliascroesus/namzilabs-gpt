@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { bearerHeaders, providerFetch } from "@/connectors/http";
+import { inferFields, type InferredField } from "@/connectors/schema-inference";
 import { credential, defaultNormalizedRecord, subscriptionId } from "@/connectors/shared";
 import type {
   BackfillPage,
@@ -13,8 +14,16 @@ import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 
 const driveFilesSchema = z.object({
+  nextPageToken: z.string().optional(),
   files: z
-    .array(z.object({ id: z.string(), name: z.string(), modifiedTime: z.string().optional() }))
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        modifiedTime: z.string().optional(),
+        webViewLink: z.string().optional(),
+      }),
+    )
     .default([]),
 });
 const sheetsSchema = z.object({
@@ -29,17 +38,234 @@ const channelSchema = z.object({
   resourceId: z.string(),
   expiration: z.string().optional(),
 });
+const spreadsheetMetadataSchema = z.object({
+  properties: z.object({
+    title: z.string(),
+    timeZone: z.string().optional(),
+  }),
+  sheets: z
+    .array(
+      z.object({
+        properties: z.object({
+          sheetId: z.number().int(),
+          title: z.string(),
+          index: z.number().int(),
+          hidden: z.boolean().optional(),
+          sheetType: z.string().optional(),
+          gridProperties: z
+            .object({ rowCount: z.number().int(), columnCount: z.number().int() })
+            .optional(),
+        }),
+      }),
+    )
+    .default([]),
+});
+
+export type GoogleSpreadsheet = {
+  id: string;
+  name: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+};
+
+export type GoogleSheetTab = {
+  id: number;
+  name: string;
+  index: number;
+  hidden: boolean;
+  rowCapacity: number;
+  columnCount: number;
+};
+
+export type GooglePreviewFilter = {
+  field: string;
+  operator:
+    | "equals"
+    | "not_equals"
+    | "contains"
+    | "not_contains"
+    | "starts_with"
+    | "ends_with"
+    | "greater_than"
+    | "less_than"
+    | "is_empty"
+    | "is_not_empty";
+  value?: string | number;
+};
+
+export type GoogleSheetPreview = {
+  records: Record<string, unknown>[];
+  fields: InferredField[];
+  totalRecords: number;
+  matchingRecords: number;
+  metricValue: number;
+  refreshedAt: string;
+};
 
 function accessToken(context: ConnectorContext): string {
   return credential(context, "accessToken");
 }
 
-function rowsToObjects(values: (string | number | boolean | null)[][]): Record<string, unknown>[] {
+function rowsToObjects(
+  values: (string | number | boolean | null)[][],
+  firstDataRow = 2,
+): Record<string, unknown>[] {
   const [headers, ...rows] = values;
   if (!headers) return [];
-  return rows.map((row) =>
-    Object.fromEntries(headers.map((header, index) => [String(header), row[index] ?? null])),
+  const seen = new Map<string, number>();
+  const normalizedHeaders = headers.map((header, index) => {
+    const base = String(header ?? "").trim() || `Column ${index + 1}`;
+    const occurrence = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occurrence);
+    return occurrence === 1 ? base : `${base} (${occurrence})`;
+  });
+  return rows
+    .map((row, rowIndex): Record<string, unknown> => ({
+      ...Object.fromEntries(normalizedHeaders.map((header, index) => [header, row[index] ?? null])),
+      __namzi_row_number: firstDataRow + rowIndex,
+    }))
+    .filter((row) =>
+      Object.entries(row).some(
+        ([key, value]) => key !== "__namzi_row_number" && value !== null && value !== "",
+      ),
+    );
+}
+
+function quotedSheetName(name: string): string {
+  return `'${name.replaceAll("'", "''")}'`;
+}
+
+export function columnName(columnCount: number): string {
+  let value = Math.max(1, Math.trunc(columnCount));
+  let label = "";
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
+}
+
+function previewFilterPasses(
+  record: Record<string, unknown>,
+  filter: GooglePreviewFilter,
+): boolean {
+  const current = record[filter.field];
+  const empty = current === null || current === undefined || current === "";
+  if (filter.operator === "is_empty") return empty;
+  if (filter.operator === "is_not_empty") return !empty;
+  const left = String(current ?? "").trim();
+  const right = String(filter.value ?? "").trim();
+  const normalizedLeft = left.toLocaleLowerCase();
+  const normalizedRight = right.toLocaleLowerCase();
+  if (filter.operator === "equals") return normalizedLeft === normalizedRight;
+  if (filter.operator === "not_equals") return normalizedLeft !== normalizedRight;
+  if (filter.operator === "contains") return normalizedLeft.includes(normalizedRight);
+  if (filter.operator === "not_contains") return !normalizedLeft.includes(normalizedRight);
+  if (filter.operator === "starts_with") return normalizedLeft.startsWith(normalizedRight);
+  if (filter.operator === "ends_with") return normalizedLeft.endsWith(normalizedRight);
+  const leftNumber = Number(current);
+  const rightNumber = Number(filter.value);
+  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) return false;
+  return filter.operator === "greater_than" ? leftNumber > rightNumber : leftNumber < rightNumber;
+}
+
+export async function listGoogleSpreadsheets(
+  context: ConnectorContext,
+  options: { query?: string; pageToken?: string } = {},
+): Promise<{ resources: GoogleSpreadsheet[]; nextPageToken: string | null }> {
+  const clauses = ["mimeType='application/vnd.google-apps.spreadsheet'", "trashed=false"];
+  if (options.query?.trim()) {
+    const escaped = options.query.trim().replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+    clauses.push(`name contains '${escaped}'`);
+  }
+  const parameters = new URLSearchParams({
+    q: clauses.join(" and "),
+    fields: "nextPageToken,files(id,name,modifiedTime,webViewLink)",
+    orderBy: "modifiedTime desc",
+    pageSize: "100",
+    spaces: "drive",
+  });
+  if (options.pageToken) parameters.set("pageToken", options.pageToken);
+  const result = await providerFetch(
+    `https://www.googleapis.com/drive/v3/files?${parameters.toString()}`,
+    { headers: bearerHeaders(accessToken(context)) },
+    driveFilesSchema,
   );
+  return { resources: result.files, nextPageToken: result.nextPageToken ?? null };
+}
+
+export async function listGoogleSheetTabs(
+  context: ConnectorContext,
+  spreadsheetId: string,
+): Promise<{ spreadsheetName: string; timezone?: string; tabs: GoogleSheetTab[] }> {
+  const fields =
+    "properties(title,timeZone),sheets(properties(sheetId,title,index,hidden,sheetType,gridProperties(rowCount,columnCount)))";
+  const result = await providerFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?includeGridData=false&fields=${encodeURIComponent(fields)}`,
+    { headers: bearerHeaders(accessToken(context)) },
+    spreadsheetMetadataSchema,
+  );
+  return {
+    spreadsheetName: result.properties.title,
+    timezone: result.properties.timeZone,
+    tabs: result.sheets
+      .filter((sheet) => sheet.properties.sheetType !== "OBJECT")
+      .map(({ properties }) => ({
+        id: properties.sheetId,
+        name: properties.title,
+        index: properties.index,
+        hidden: properties.hidden ?? false,
+        rowCapacity: properties.gridProperties?.rowCount ?? 0,
+        columnCount: properties.gridProperties?.columnCount ?? 0,
+      }))
+      .sort((left, right) => left.index - right.index),
+  };
+}
+
+export async function previewGoogleSheet(
+  context: ConnectorContext,
+  input: {
+    spreadsheetId: string;
+    sheetName: string;
+    filters?: GooglePreviewFilter[];
+    calculation?: { operation: "count" | "distinct_count" | "sum" | "average"; field?: string };
+    limit?: number;
+  },
+): Promise<GoogleSheetPreview> {
+  const values = await sheetValues(context, input.spreadsheetId, quotedSheetName(input.sheetName));
+  const allRecords = rowsToObjects(values);
+  const matching = allRecords.filter((record) =>
+    (input.filters ?? []).every((filter) => previewFilterPasses(record, filter)),
+  );
+  const limit = Math.min(10, Math.max(1, Math.trunc(input.limit ?? 3)));
+  const records = matching.slice(-limit).reverse();
+  const fields = inferFields(allRecords.slice(-100)).filter(
+    (field) => field.path !== "__namzi_row_number",
+  );
+  const calculation = input.calculation ?? { operation: "count" as const };
+  const valuesForCalculation = calculation.field
+    ? matching
+        .map((record) => record[calculation.field!])
+        .filter((value) => value !== null && value !== undefined && value !== "")
+    : [];
+  let metricValue = matching.length;
+  if (calculation.operation === "distinct_count") {
+    metricValue = new Set(valuesForCalculation.map((value) => String(value))).size;
+  } else if (calculation.operation === "sum" || calculation.operation === "average") {
+    const numbers = valuesForCalculation.map(Number).filter(Number.isFinite);
+    const total = numbers.reduce((sum, value) => sum + value, 0);
+    metricValue =
+      calculation.operation === "average" && numbers.length ? total / numbers.length : total;
+  }
+  return {
+    records,
+    fields,
+    totalRecords: allRecords.length,
+    matchingRecords: matching.length,
+    metricValue,
+    refreshedAt: new Date().toISOString(),
+  };
 }
 
 export type SheetPagePlan = {
@@ -123,7 +349,7 @@ async function fetchSheetPage(
   ]);
   const headers = headerValues[0];
   if (!headers) return { records: [], nextCursor: null, highWatermark: new Date().toISOString() };
-  const records = rowsToObjects([headers, ...dataValues]);
+  const records = rowsToObjects([headers, ...dataValues], plan.dataStartRow);
   const requestedRows = plan.dataEndRow - plan.dataStartRow + 1;
   const nextCursor = dataValues.length < requestedRows ? null : plan.nextCursorCandidate;
   return { records, nextCursor, highWatermark: new Date().toISOString() };
@@ -142,7 +368,8 @@ export const googleSheetsConnector: Connector = {
   manifest: {
     id: "google-sheets",
     name: "Google Sheets",
-    description: "Track selected spreadsheets with per-file Google access.",
+    description:
+      "Connect once, then choose any accessible spreadsheet and tab while building metrics.",
     logo: "GS",
     authType: "oauth2",
     apiVersion: "drive-v3/sheets-v4",
@@ -153,9 +380,9 @@ export const googleSheetsConnector: Connector = {
   },
 
   async authorize(context) {
-  const state = credential(context, "oauthState");
-  const challenge = credential(context, "pkceChallenge");
-  const config = env();
+    const state = credential(context, "oauthState");
+    const challenge = credential(context, "pkceChallenge");
+    const config = env();
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.search = new URLSearchParams({
       client_id: config.GOOGLE_CLIENT_ID ?? "",
@@ -187,12 +414,8 @@ export const googleSheetsConnector: Connector = {
   },
 
   async discoverResources(context) {
-    const result = await providerFetch(
-      "https://www.googleapis.com/drive/v3/files?q=mimeType%3D'application%2Fvnd.google-apps.spreadsheet'%20and%20trashed%3Dfalse&fields=files(id,name,modifiedTime)&pageSize=100",
-      { headers: bearerHeaders(accessToken(context)) },
-      driveFilesSchema,
-    );
-    return result.files.map((file) => ({
+    const result = await listGoogleSpreadsheets(context);
+    return result.resources.map((file) => ({
       type: "spreadsheet",
       externalId: file.id,
       name: file.name,
@@ -289,10 +512,25 @@ export const googleSheetsConnector: Connector = {
     if (mode !== "append-only" && (key === null || key === undefined || key === "")) {
       throw new Error("A unique key column is required for mutable Google Sheet rows.");
     }
-    const normalized = defaultNormalizedRecord(record, "row", eventType);
+    const normalized = defaultNormalizedRecord(
+      record,
+      String(context.configuration.resourceType ?? "row"),
+      eventType,
+    );
+    const timestampColumn = context.configuration.timestampColumn;
+    const timestampValue =
+      typeof timestampColumn === "string" ? record[timestampColumn] : undefined;
+    const occurredAt =
+      typeof timestampValue === "string" && !Number.isNaN(Date.parse(timestampValue))
+        ? new Date(timestampValue).toISOString()
+        : new Date().toISOString();
     return {
       ...normalized,
-      externalId: key === undefined ? sha256(JSON.stringify(record)) : String(key),
+      occurredAt,
+      externalId:
+        key === undefined
+          ? String(record.__namzi_row_number ?? sha256(JSON.stringify(record)))
+          : String(key),
     };
   },
 

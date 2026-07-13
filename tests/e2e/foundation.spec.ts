@@ -30,25 +30,22 @@ test("public OAuth and trust pages are available without authentication", async 
   await expect(page.getByRole("heading", { name: "Neon" })).toBeVisible();
 });
 
-test("webhook wizard refuses to invent preview records", async ({ page }) => {
+test("connection flow stays account-scoped instead of asking for metric configuration", async ({
+  page,
+}) => {
   await login(page, "/integrations/new/webhook");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Preview the latest records" })).toBeVisible();
-  await expect(page.getByText("Production never substitutes invented sample data.")).toBeVisible();
-  await expect(page.getByText("Connect the account to fetch a preview")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Webhook" })).toBeVisible();
+  await expect(page.getByText(/Data objects and filters are selected later/)).toBeVisible();
+  await expect(page.getByText(/Choose data/)).toHaveCount(0);
 });
 
-test("metric builder reaches the real-data preview boundary without fixture values", async ({
+test("metric builder exposes the source-first real-data workflow without fixture values", async ({
   page,
 }) => {
   await login(page, "/metrics/new");
-  await expect(page.getByRole("heading", { name: "Choose a canonical activity" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Choose a calculation" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Choose optional grouping" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /preview real data/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Build a metric" })).toBeVisible();
+  await expect(page.getByText(/Choose real source data/)).toBeVisible();
+  await expect(page.getByText(/canonical activity/i)).toHaveCount(0);
   await expect(page.getByText(/fixture/i)).toHaveCount(0);
 });
 

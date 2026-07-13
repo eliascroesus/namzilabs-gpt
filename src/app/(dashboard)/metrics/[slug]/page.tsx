@@ -42,12 +42,12 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
       </Link>
       <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{metric.name}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{metric.name}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
             {metric.description || "No description"}
           </p>
         </div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">
           Version {version.version} · {version.status}
         </span>
       </div>
@@ -58,7 +58,9 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
         </section>
         <section className="shell-card p-5">
           <h2 className="font-bold">Formula</h2>
-          <code className="mt-3 block rounded-lg bg-slate-50 p-3 text-sm">{version.formula}</code>
+          <code className="mt-3 block rounded-lg bg-[var(--surface-2)] p-3 text-sm">
+            {version.formula}
+          </code>
           <p className="mt-3 text-xs text-[var(--muted)]">
             Definition hash: {version.definitionHash.slice(0, 16)}…
           </p>
@@ -69,7 +71,7 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
           <Database size={17} className="text-[var(--brand)]" />
           <h2 className="font-bold">Stored provenance</h2>
         </div>
-        <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-50 p-4 text-xs leading-5">
+        <pre className="mt-4 overflow-x-auto rounded-xl bg-[var(--surface-2)] p-4 text-xs leading-5">
           {JSON.stringify(version.definition, null, 2)}
         </pre>
         <div className="mt-5 flex items-center gap-2 text-xs text-[var(--muted)]">

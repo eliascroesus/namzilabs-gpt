@@ -1,305 +1,1019 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  Check,
+  Database,
+  FileSpreadsheet,
+  Filter,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Sigma,
+  Table2,
+  Trash2,
+  WandSparkles,
+} from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
-const steps = ["Measure", "Calculate", "Organize", "Preview", "Save"];
-const activityOptions = [
-  ["meeting.booked", "Meetings booked"],
-  ["meeting.canceled", "Meetings canceled"],
-  ["call.completed", "Calls completed"],
-  ["email.sent", "Emails sent"],
-  ["email.replied", "Email replies"],
-  ["opportunity.won", "Opportunities won"],
-] as const;
-type Calculation = "count" | "distinct_count" | "sum";
+export type MetricConnection = {
+  id: string;
+  provider: string;
+  providerName: string;
+  logo: string;
+  name: string;
+  accountName: string | null;
+  status: string;
+  freshness: string;
+  resources: string[];
+};
 
-const subscribeToHydration = () => () => undefined;
+type Spreadsheet = { id: string; name: string; modifiedTime?: string; webViewLink?: string };
+type SheetTab = {
+  id: number;
+  name: string;
+  index: number;
+  hidden: boolean;
+  rowCapacity: number;
+  columnCount: number;
+};
+type DataField = {
+  path: string;
+  type: "null" | "boolean" | "number" | "string" | "date" | "array" | "object";
+  nullable: boolean;
+};
+type Preview = {
+  records: Record<string, unknown>[];
+  fields: DataField[];
+  totalRecords: number;
+  matchingRecords: number;
+  metricValue: number;
+  refreshedAt: string;
+};
+type Calculation = "count" | "distinct_count" | "sum" | "average";
+type FilterOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "starts_with"
+  | "ends_with"
+  | "greater_than"
+  | "less_than"
+  | "is_empty"
+  | "is_not_empty";
+type FilterRow = { id: string; field: string; operator: FilterOperator; value: string };
 
-export function MetricBuilder() {
-  const hydrated = useSyncExternalStore(
-    subscribeToHydration,
-    () => true,
-    () => false,
-  );
+const steps = [
+  { label: "Source", detail: "App, account, and data", icon: Database },
+  { label: "Test data", detail: "Recent real records", icon: RefreshCw },
+  { label: "Metric", detail: "What to calculate", icon: Sigma },
+  { label: "Filters", detail: "Which records count", icon: Filter },
+  { label: "Review", detail: "Name and publish", icon: WandSparkles },
+];
+
+const filterOperators: { value: FilterOperator; label: string }[] = [
+  { value: "equals", label: "Exactly matches" },
+  { value: "not_equals", label: "Does not match" },
+  { value: "contains", label: "Contains" },
+  { value: "not_contains", label: "Does not contain" },
+  { value: "starts_with", label: "Starts with" },
+  { value: "ends_with", label: "Ends with" },
+  { value: "greater_than", label: "Greater than" },
+  { value: "less_than", label: "Less than" },
+  { value: "is_empty", label: "Is empty" },
+  { value: "is_not_empty", label: "Is not empty" },
+];
+
+function inferClientFields(records: Record<string, unknown>[]): DataField[] {
+  const names = new Set(records.flatMap((record) => Object.keys(record)));
+  return [...names]
+    .filter((name) => !name.startsWith("__namzi_"))
+    .sort()
+    .map((path) => {
+      const values = records.map((record) => record[path]).filter((value) => value != null);
+      const first = values[0];
+      const type =
+        typeof first === "number"
+          ? "number"
+          : typeof first === "boolean"
+            ? "boolean"
+            : typeof first === "string" && !Number.isNaN(Date.parse(first))
+              ? "date"
+              : "string";
+      return { path, type, nullable: values.length !== records.length } as DataField;
+    });
+}
+
+function fieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function formatMetricValue(value: number): string {
+  return Number.isInteger(value)
+    ? value.toLocaleString()
+    : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+export function MetricBuilder({
+  connections,
+  initialConnectionId,
+}: {
+  connections: MetricConnection[];
+  initialConnectionId?: string;
+}) {
+  const router = useRouter();
+  const initialConnection = connections.find((item) => item.id === initialConnectionId) ?? null;
   const [step, setStep] = useState(0);
-  const [activity, setActivity] = useState("meeting.booked");
+  const [connection, setConnection] = useState<MetricConnection | null>(initialConnection);
+  const [spreadsheets, setSpreadsheets] = useState<Spreadsheet[]>([]);
+  const [spreadsheetQuery, setSpreadsheetQuery] = useState("");
+  const [spreadsheet, setSpreadsheet] = useState<Spreadsheet | null>(null);
+  const [tabs, setTabs] = useState<SheetTab[]>([]);
+  const [tab, setTab] = useState<SheetTab | null>(null);
+  const [genericResource, setGenericResource] = useState("");
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState(0);
   const [calculation, setCalculation] = useState<Calculation>("count");
-  const [groupBy, setGroupBy] = useState("none");
-  const [name, setName] = useState("Meetings booked");
-  const [preview, setPreview] = useState<{
-    rows: Record<string, unknown>[];
-    matchingCount: number;
-    durationMs: number;
-  } | null>(null);
-  const [working, setWorking] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [calculationField, setCalculationField] = useState("");
+  const [uniqueKeyField, setUniqueKeyField] = useState("");
+  const [timestampField, setTimestampField] = useState("");
+  const [filters, setFilters] = useState<FilterRow[]>([]);
+  const [name, setName] = useState("New metric");
+  const [loading, setLoading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const definition = useMemo(
-    () => ({
-      dataset: "activity_facts",
-      measure:
-        calculation === "count"
-          ? { operation: "count" }
-          : {
-              operation: calculation,
-              field: calculation === "sum" ? "amount" : "person_id",
-            },
-      filters: [{ field: "activity_type", operator: "equals", value: activity }],
-      timeField: "occurred_at",
-      groupBy: groupBy === "none" ? [] : [groupBy],
-      comparison: "none",
-    }),
-    [activity, calculation, groupBy],
+  const sourceReady = Boolean(
+    connection && (connection.provider === "google-sheets" ? spreadsheet && tab : genericResource),
+  );
+  const fields = useMemo(() => preview?.fields ?? [], [preview?.fields]);
+  const dataRecord = preview?.records[selectedRecord] ?? preview?.records[0];
+  const currentSourceLabel =
+    connection?.provider === "google-sheets"
+      ? spreadsheet && tab
+        ? `${spreadsheet.name} / ${tab.name}`
+        : "Choose spreadsheet and tab"
+      : genericResource || "Choose a data object";
+
+  const previewFilters = useMemo(
+    () =>
+      filters
+        .filter((filter) => filter.field)
+        .map((filter) => ({
+          field: filter.field,
+          operator: filter.operator,
+          ...(!["is_empty", "is_not_empty"].includes(filter.operator)
+            ? {
+                value:
+                  fields.find((field) => field.path === filter.field)?.type === "number"
+                    ? Number(filter.value)
+                    : filter.value,
+              }
+            : {}),
+        })),
+    [fields, filters],
   );
 
-  async function loadPreview() {
-    setWorking(true);
+  async function loadSpreadsheets(target: MetricConnection, query = "") {
+    setLoading(true);
     setError(null);
     try {
-      const end = new Date();
-      const start = new Date(end.getTime() - 30 * 86_400_000);
-      const response = await fetch("/api/metrics/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          definition,
-          window: {
-            start: start.toISOString(),
-            end: end.toISOString(),
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-          },
-        }),
-      });
+      const parameters = new URLSearchParams();
+      if (query.trim()) parameters.set("query", query.trim());
+      const response = await fetch(
+        `/api/connections/${target.id}/resources${parameters.size ? `?${parameters}` : ""}`,
+        { cache: "no-store" },
+      );
       const result = (await response.json()) as {
-        data?: { rows: Record<string, unknown>[]; matchingCount: number; durationMs: number };
+        data?: Spreadsheet[];
         error?: { message?: string };
       };
-      if (!response.ok || !result.data) throw new Error(result.error?.message ?? "Preview failed.");
-      setPreview(result.data);
-      setStep(3);
-    } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : "Preview failed.");
+      if (!response.ok) throw new Error(result.error?.message ?? "Could not load spreadsheets.");
+      setSpreadsheets(result.data ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load spreadsheets.");
     } finally {
-      setWorking(false);
+      setLoading(false);
     }
+  }
+
+  async function chooseConnection(target: MetricConnection) {
+    setConnection(target);
+    setSpreadsheet(null);
+    setTab(null);
+    setTabs([]);
+    setPreview(null);
+    setGenericResource(target.resources[0] ?? "");
+    setError(null);
+    if (target.provider === "google-sheets") await loadSpreadsheets(target);
+  }
+
+  async function chooseSpreadsheet(target: Spreadsheet) {
+    if (!connection) return;
+    setSpreadsheet(target);
+    setTab(null);
+    setTabs([]);
+    setPreview(null);
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/connections/${connection.id}/resources/${encodeURIComponent(target.id)}`,
+        { cache: "no-store" },
+      );
+      const result = (await response.json()) as {
+        data?: { tabs: SheetTab[] };
+        error?: { message?: string };
+      };
+      if (!response.ok) throw new Error(result.error?.message ?? "Could not load worksheet tabs.");
+      setTabs(result.data?.tabs ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load worksheet tabs.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadPreview(options: { targetTab?: SheetTab; useFilters?: boolean } = {}) {
+    if (!connection) return;
+    const selectedTab = options.targetTab ?? tab;
+    setLoading(true);
+    setError(null);
+    setSelectedRecord(0);
+    try {
+      if (connection.provider === "google-sheets") {
+        if (!spreadsheet || !selectedTab) return;
+        const response = await fetch(`/api/connections/${connection.id}/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spreadsheetId: spreadsheet.id,
+            sheetName: selectedTab.name,
+            limit: 3,
+            filters: options.useFilters ? previewFilters : [],
+            calculation: {
+              operation: calculation,
+              ...(calculation !== "count" && calculationField ? { field: calculationField } : {}),
+            },
+          }),
+        });
+        const result = (await response.json()) as {
+          data?: Preview;
+          error?: { message?: string };
+        };
+        if (!response.ok || !result.data) {
+          throw new Error(result.error?.message ?? "Could not test this worksheet.");
+        }
+        setPreview(result.data);
+        if (!calculationField) {
+          const numeric = result.data.fields.find((field) => field.type === "number");
+          setCalculationField(numeric?.path ?? result.data.fields[0]?.path ?? "");
+        }
+        return;
+      }
+      const response = await fetch(`/api/connections/${connection.id}/samples`, {
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        data?: Record<string, unknown>[];
+        error?: { message?: string };
+      };
+      if (!response.ok) throw new Error(result.error?.message ?? "Could not test this source.");
+      const records = result.data ?? [];
+      const loadedFields = inferClientFields(records);
+      setPreview({
+        records,
+        fields: loadedFields,
+        totalRecords: records.length,
+        matchingRecords: records.length,
+        metricValue: records.length,
+        refreshedAt: new Date().toISOString(),
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not test this source.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function chooseTab(target: SheetTab) {
+    setTab(target);
+    setPreview(null);
+    await loadPreview({ targetTab: target });
+  }
+
+  function addFilter() {
+    setFilters((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        field: fields[0]?.path ?? "",
+        operator: "equals",
+        value: "",
+      },
+    ]);
   }
 
   async function publishMetric() {
-    setWorking(true);
+    if (!connection || !sourceReady || !preview || !name.trim()) return;
+    setPublishing(true);
     setError(null);
     try {
+      let resourceType = genericResource;
+      let resourceId = genericResource;
+      if (connection.provider === "google-sheets" && spreadsheet && tab) {
+        resourceId = `${spreadsheet.id}:${tab.id}`;
+        resourceType = `google-sheet:${resourceId}`;
+        const tracked = await fetch(`/api/connections/${connection.id}/resources`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spreadsheetId: spreadsheet.id,
+            spreadsheetName: spreadsheet.name,
+            sheetId: tab.id,
+            sheetName: tab.name,
+            columnCount: Math.max(1, tab.columnCount),
+            ...(uniqueKeyField ? { uniqueKeyColumn: uniqueKeyField } : {}),
+            ...(timestampField ? { timestampColumn: timestampField } : {}),
+          }),
+        });
+        const trackedResult = (await tracked.json()) as { error?: { message?: string } };
+        if (!tracked.ok) {
+          throw new Error(trackedResult.error?.message ?? "Could not start source syncing.");
+        }
+      }
+      const fieldTypes = Object.fromEntries(
+        fields.map((field) => [`data.${field.path}`, field.type]),
+      );
+      const definition = {
+        dataset: "source_records",
+        source: {
+          connectionId: connection.id,
+          provider: connection.provider,
+          resourceType,
+          resourceId,
+          ...(spreadsheet
+            ? { spreadsheetId: spreadsheet.id, spreadsheetName: spreadsheet.name }
+            : {}),
+          ...(tab ? { sheetId: tab.id, sheetName: tab.name } : {}),
+          fieldTypes,
+        },
+        measure:
+          calculation === "count"
+            ? { operation: "count" }
+            : { operation: calculation, field: `data.${calculationField}` },
+        filters: previewFilters.map((filter) => ({ ...filter, field: `data.${filter.field}` })),
+        timeField: "occurred_at",
+        groupBy: [],
+        comparison: "previous_period",
+      };
       const response = await fetch("/api/metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, definition }),
+        body: JSON.stringify({
+          name: name.trim(),
+          description: `${calculation.replaceAll("_", " ")} from ${currentSourceLabel}`,
+          definition,
+        }),
       });
       const result = (await response.json()) as { error?: { message?: string } };
-      if (!response.ok) throw new Error(result.error?.message ?? "The metric could not be saved.");
-      setSaved(true);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "The metric could not be saved.");
+      if (!response.ok) throw new Error(result.error?.message ?? "Could not publish the metric.");
+      router.push("/metrics");
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not publish the metric.");
     } finally {
-      setWorking(false);
+      setPublishing(false);
     }
   }
 
-  const previewValue = preview?.rows[0]?.value;
+  function nextStep() {
+    if (step === 0 && sourceReady && !preview) void loadPreview();
+    setStep((current) => Math.min(4, current + 1));
+  }
+
   return (
-    <div className="mx-auto max-w-4xl">
-      <Link
-        href="/metrics"
-        className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--muted)]"
-      >
-        <ArrowLeft size={15} /> Metrics
-      </Link>
-      <h1 className="mt-4 text-3xl font-bold tracking-tight">Build a metric</h1>
-      <p className="mt-2 text-sm text-[var(--muted)]">
-        Preview and publish a deterministic definition against genuine tenant data.
-      </p>
-      <ol className="mt-7 grid grid-cols-5 gap-2" aria-label="Metric builder progress">
-        {steps.map((label, index) => (
-          <li
-            key={label}
-            className={`rounded-lg px-2 py-2 text-center text-xs font-semibold ${step === index ? "bg-[var(--brand)] text-white" : index < step ? "bg-[var(--brand-soft)] text-[var(--brand-dark)]" : "bg-slate-100 text-slate-500"}`}
-          >
-            {index < step ? (
-              <Check className="mx-auto mb-1" size={13} />
-            ) : (
-              <span className="mb-1 block">{index + 1}</span>
-            )}
-            {label}
-          </li>
-        ))}
-      </ol>
-      <section className="shell-card mt-5 min-h-80 p-6 sm:p-8">
-        {step === 0 ? (
-          <div>
-            <h2 className="text-2xl font-bold">Choose a canonical activity</h2>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {activityOptions.map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setActivity(value);
-                    setName(label);
-                  }}
-                  className={`rounded-xl border p-4 text-left ${activity === value ? "border-[var(--brand)] bg-[var(--brand-soft)]" : "border-[var(--line)]"}`}
-                >
-                  <span className="font-semibold">{label}</span>
-                  <span className="mt-1 block text-xs text-[var(--muted)]">
-                    activity_type = {value}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {step === 1 ? (
-          <div>
-            <h2 className="text-2xl font-bold">Choose a calculation</h2>
-            <div className="mt-6 space-y-3">
-              {(["count", "distinct_count", "sum"] as const).map((value) => (
-                <label
-                  key={value}
-                  className="flex gap-3 rounded-xl border border-[var(--line)] p-4"
-                >
-                  <input
-                    type="radio"
-                    checked={calculation === value}
-                    onChange={() => setCalculation(value)}
-                  />
-                  <span className="font-semibold capitalize">{value.replaceAll("_", " ")}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {step === 2 ? (
-          <div>
-            <h2 className="text-2xl font-bold">Choose optional grouping</h2>
-            <select
-              value={groupBy}
-              onChange={(event) => setGroupBy(event.target.value)}
-              className="mt-6 h-11 w-full max-w-sm rounded-lg border border-[var(--line)] bg-white px-3"
-            >
-              <option value="none">No grouping</option>
-              <option value="campaign_id">Campaign</option>
-              <option value="channel">Channel</option>
-              <option value="owner_id">Owner</option>
-            </select>
-            <p className="mt-4 text-xs text-[var(--muted)]">
-              The preview uses the previous 30 days and the browser’s IANA timezone.
-            </p>
-          </div>
-        ) : null}
-        {step === 3 ? (
-          <div>
-            <h2 className="text-2xl font-bold">Real-data preview</h2>
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl bg-slate-950 p-5 text-white">
-                <p className="text-xs text-white/60">Result</p>
-                <p className="mt-2 text-3xl font-bold">
-                  {previewValue === null || previewValue === undefined
-                    ? "No data"
-                    : String(previewValue)}
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--line)] p-5">
-                <p className="text-xs text-[var(--muted)]">Matching records</p>
-                <p className="mt-2 text-3xl font-bold">{preview?.matchingCount ?? 0}</p>
-              </div>
-              <div className="rounded-xl border border-[var(--line)] p-5">
-                <p className="text-xs text-[var(--muted)]">Query time</p>
-                <p className="mt-2 text-3xl font-bold">
-                  {preview ? `${preview.durationMs.toFixed(1)} ms` : "—"}
-                </p>
-              </div>
-            </div>
-            <pre className="mt-5 overflow-x-auto rounded-xl bg-slate-50 p-4 text-xs">
-              {JSON.stringify(definition, null, 2)}
-            </pre>
-          </div>
-        ) : null}
-        {step === 4 ? (
-          <div>
-            <h2 className="text-2xl font-bold">Publish immutable version 1</h2>
-            <label className="mt-6 block text-sm font-semibold">
-              Metric name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                className="mt-2 h-11 w-full rounded-lg border border-[var(--line)] px-3 font-normal"
-              />
-            </label>
-            {saved ? (
-              <div
-                role="status"
-                className="mt-5 rounded-lg bg-emerald-50 p-4 text-sm font-semibold text-emerald-800"
-              >
-                Metric version 1 was published from the previewed definition.{" "}
-                <Link href="/metrics" className="underline">
-                  View metrics
-                </Link>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {error ? (
-          <div role="alert" className="mt-5 rounded-lg bg-red-50 p-4 text-sm text-red-800">
-            {error}
-          </div>
-        ) : null}
-      </section>
-      <div className="mt-5 flex justify-between">
-        <button
-          type="button"
-          onClick={() => setStep((value) => Math.max(0, value - 1))}
-          disabled={step === 0 || working}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-semibold disabled:opacity-40"
-        >
-          <ArrowLeft size={15} /> Back
-        </button>
-        {step < 2 ? (
-          <button
-            type="button"
-            onClick={() => setStep((value) => value + 1)}
-            disabled={!hydrated}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            Continue <ArrowRight size={15} />
-          </button>
-        ) : step === 2 ? (
-          <button
-            type="button"
-            onClick={loadPreview}
-            disabled={working}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {working ? "Querying…" : "Preview real data"} <ArrowRight size={15} />
-          </button>
-        ) : step === 3 ? (
-          <button
-            type="button"
-            onClick={() => setStep(4)}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white"
-          >
-            Continue <ArrowRight size={15} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={publishMetric}
-            disabled={working || saved}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            <Save size={15} /> {working ? "Publishing…" : "Publish metric"}
-          </button>
-        )}
+    <div className="mx-auto max-w-[1500px]">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link href="/metrics" className="eyebrow-link">
+            <ArrowLeft size={14} /> Metrics
+          </Link>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight">Build a metric</h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Choose real source data, inspect recent records, then define what should count.
+          </p>
+        </div>
+        <div className="status-pill">
+          <span className={`status-dot ${preview ? "bg-[var(--success)]" : "bg-[var(--muted)]"}`} />
+          {preview ? "Live sample loaded" : "Waiting for source"}
+        </div>
       </div>
+
+      {connections.length === 0 ? (
+        <section className="shell-card mt-7 p-12 text-center">
+          <Database size={28} className="mx-auto text-[var(--muted)]" />
+          <h2 className="mt-4 text-xl font-semibold">Connect a data source first</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            A metric needs at least one active provider account.
+          </p>
+          <Link href="/integrations" className="primary-link mt-5">
+            Open integrations <ArrowRight size={15} />
+          </Link>
+        </section>
+      ) : (
+        <div className="mt-7 grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)_390px]">
+          <nav className="builder-steps" aria-label="Metric builder steps">
+            {steps.map((item, index) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => index <= step && setStep(index)}
+                className={`builder-step ${index === step ? "builder-step-active" : ""}`}
+              >
+                <span className="builder-step-number">
+                  {index < step ? <Check size={14} /> : index + 1}
+                </span>
+                <span>
+                  <span className="block font-medium">{item.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-[var(--muted)]">
+                    {item.detail}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </nav>
+
+          <main className="shell-card min-h-[670px] overflow-hidden">
+            <div className="border-b border-[var(--line)] px-6 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                Step {step + 1} of {steps.length}
+              </p>
+              <h2 className="mt-1 text-xl font-semibold">{steps[step]?.label}</h2>
+            </div>
+            <div className="p-6">
+              {step === 0 ? (
+                <div>
+                  <label className="field-label">Connected account</label>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {connections.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => void chooseConnection(item)}
+                        className={`source-option ${connection?.id === item.id ? "source-option-active" : ""}`}
+                      >
+                        <span className="provider-mark size-10">{item.logo}</span>
+                        <span className="min-w-0 text-left">
+                          <span className="block truncate text-sm font-semibold">
+                            {item.providerName}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+                            {item.accountName ?? item.name}
+                          </span>
+                        </span>
+                        {connection?.id === item.id ? (
+                          <Check size={16} className="ml-auto text-[var(--accent)]" />
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+
+                  {connection?.provider === "google-sheets" ? (
+                    <div className="mt-7">
+                      <div className="flex items-end justify-between gap-3">
+                        <label className="field-label">Spreadsheet</label>
+                        <button
+                          type="button"
+                          onClick={() => void loadSpreadsheets(connection, spreadsheetQuery)}
+                          className="text-button"
+                        >
+                          <RefreshCw size={13} /> Refresh
+                        </button>
+                      </div>
+                      <div className="relative mt-2">
+                        <Search
+                          size={16}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+                        />
+                        <input
+                          value={spreadsheetQuery}
+                          onChange={(event) => setSpreadsheetQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter")
+                              void loadSpreadsheets(connection, spreadsheetQuery);
+                          }}
+                          placeholder="Search all spreadsheets in this Google account"
+                          className="field-control w-full pl-10"
+                        />
+                      </div>
+                      <div className="data-picker mt-3 max-h-56 overflow-y-auto">
+                        {loading && spreadsheets.length === 0 ? (
+                          <div className="picker-empty">
+                            <LoaderCircle size={17} className="animate-spin" /> Loading
+                            spreadsheets…
+                          </div>
+                        ) : spreadsheets.length ? (
+                          spreadsheets.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => void chooseSpreadsheet(item)}
+                              className={`data-picker-row ${spreadsheet?.id === item.id ? "data-picker-row-active" : ""}`}
+                            >
+                              <FileSpreadsheet size={17} className="text-emerald-400" />
+                              <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                                {item.name}
+                              </span>
+                              <span className="text-[11px] text-[var(--muted)]">
+                                {item.modifiedTime
+                                  ? new Date(item.modifiedTime).toLocaleDateString()
+                                  : "Available"}
+                              </span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="picker-empty">
+                            No spreadsheets found for this account.
+                          </div>
+                        )}
+                      </div>
+
+                      {spreadsheet ? (
+                        <div className="mt-6">
+                          <label className="field-label">Worksheet tab</label>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {tabs.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => void chooseTab(item)}
+                                className={`source-option ${tab?.id === item.id ? "source-option-active" : ""}`}
+                              >
+                                <Table2 size={17} className="text-[var(--accent)]" />
+                                <span className="min-w-0 text-left">
+                                  <span className="block truncate text-sm font-semibold">
+                                    {item.name}
+                                  </span>
+                                  <span className="block text-[11px] text-[var(--muted)]">
+                                    {item.columnCount} columns · {item.rowCapacity.toLocaleString()}{" "}
+                                    row capacity
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : connection ? (
+                    <label className="mt-7 block">
+                      <span className="field-label">Data object</span>
+                      <select
+                        value={genericResource}
+                        onChange={(event) => setGenericResource(event.target.value)}
+                        className="field-control mt-2 w-full"
+                      >
+                        {connection.resources.map((resource) => (
+                          <option key={resource} value={resource}>
+                            {resource.replaceAll("_", " ")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {step === 1 ? (
+                <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">Test with recent records</h3>
+                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                        These are real records returned from {currentSourceLabel}, not generated
+                        examples.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary-link"
+                      onClick={() => void loadPreview()}
+                    >
+                      <RefreshCw size={14} /> Find new records
+                    </button>
+                  </div>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="stat-tile">
+                      <span>Total rows found</span>
+                      <strong>{preview?.totalRecords.toLocaleString() ?? "—"}</strong>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Fields detected</span>
+                      <strong>{fields.length || "—"}</strong>
+                    </div>
+                    <div className="stat-tile">
+                      <span>Last tested</span>
+                      <strong className="text-sm">
+                        {preview ? new Date(preview.refreshedAt).toLocaleTimeString() : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="mt-6 rounded-xl border border-[var(--line)]">
+                    <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+                      <p className="text-sm font-semibold">Detected columns</p>
+                      <span className="text-xs text-[var(--muted)]">From latest 100 rows</span>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {fields.map((field) => (
+                        <div
+                          key={field.path}
+                          className="grid grid-cols-[1fr_90px] border-b border-[var(--line)] px-4 py-2.5 text-sm last:border-0"
+                        >
+                          <span className="truncate font-medium">{field.path}</span>
+                          <span className="field-type">{field.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {connection?.provider === "google-sheets" ? (
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                      <label>
+                        <span className="field-label">Unique row ID (optional)</span>
+                        <select
+                          value={uniqueKeyField}
+                          onChange={(event) => setUniqueKeyField(event.target.value)}
+                          className="field-control mt-2 w-full"
+                        >
+                          <option value="">Use sheet row number</option>
+                          {fields.map((field) => (
+                            <option key={field.path} value={field.path}>
+                              {field.path}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span className="field-label">Record date (optional)</span>
+                        <select
+                          value={timestampField}
+                          onChange={(event) => setTimestampField(event.target.value)}
+                          className="field-control mt-2 w-full"
+                        >
+                          <option value="">Use sync time</option>
+                          {fields.map((field) => (
+                            <option key={field.path} value={field.path}>
+                              {field.path}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {step === 2 ? (
+                <div>
+                  <h3 className="text-lg font-semibold">What should this metric calculate?</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    Start with a simple operation. The result updates against every matching record.
+                  </p>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        ["count", "Count records", "How many rows match"],
+                        ["distinct_count", "Count unique", "Unique values in one field"],
+                        ["sum", "Sum", "Total of a numeric field"],
+                        ["average", "Average", "Average of a numeric field"],
+                      ] as const
+                    ).map(([value, label, detail]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setCalculation(value)}
+                        className={`calculation-option ${calculation === value ? "source-option-active" : ""}`}
+                      >
+                        <BarChart3 size={18} />
+                        <span>
+                          <span className="block text-sm font-semibold">{label}</span>
+                          <span className="mt-1 block text-xs text-[var(--muted)]">{detail}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {calculation !== "count" ? (
+                    <label className="mt-6 block">
+                      <span className="field-label">Field to calculate</span>
+                      <select
+                        value={calculationField}
+                        onChange={(event) => setCalculationField(event.target.value)}
+                        className="field-control mt-2 w-full"
+                      >
+                        {fields
+                          .filter((field) =>
+                            ["sum", "average"].includes(calculation)
+                              ? field.type === "number"
+                              : true,
+                          )
+                          .map((field) => (
+                            <option key={field.path} value={field.path}>
+                              {field.path} · {field.type}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void loadPreview({ useFilters: true })}
+                    className="secondary-link mt-5"
+                  >
+                    <RefreshCw size={14} /> Test calculation
+                  </button>
+                </div>
+              ) : null}
+
+              {step === 3 ? (
+                <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">Only include the records you want</h3>
+                      <p className="mt-1 text-sm text-[var(--muted)]">
+                        All rules use AND logic. Every rule must pass for a row to count.
+                      </p>
+                    </div>
+                    <button type="button" onClick={addFilter} className="secondary-link">
+                      <Plus size={14} /> Add rule
+                    </button>
+                  </div>
+                  {filters.length === 0 ? (
+                    <button type="button" onClick={addFilter} className="empty-filter mt-6">
+                      <Filter size={20} />
+                      <span className="font-semibold">No filters — every record will count</span>
+                      <span className="text-xs text-[var(--muted)]">
+                        Add a rule to narrow the data.
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="mt-6 space-y-3">
+                      {filters.map((filter, index) => (
+                        <div key={filter.id} className="filter-row">
+                          <div className="mb-2 flex items-center justify-between sm:hidden">
+                            <span className="text-xs font-semibold text-[var(--muted)]">
+                              Rule {index + 1}
+                            </span>
+                          </div>
+                          <select
+                            value={filter.field}
+                            onChange={(event) =>
+                              setFilters((current) =>
+                                current.map((item) =>
+                                  item.id === filter.id
+                                    ? { ...item, field: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            className="field-control"
+                          >
+                            {fields.map((field) => (
+                              <option key={field.path} value={field.path}>
+                                {field.path}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={filter.operator}
+                            onChange={(event) =>
+                              setFilters((current) =>
+                                current.map((item) =>
+                                  item.id === filter.id
+                                    ? { ...item, operator: event.target.value as FilterOperator }
+                                    : item,
+                                ),
+                              )
+                            }
+                            className="field-control"
+                          >
+                            {filterOperators.map((operator) => (
+                              <option key={operator.value} value={operator.value}>
+                                {operator.label}
+                              </option>
+                            ))}
+                          </select>
+                          {!["is_empty", "is_not_empty"].includes(filter.operator) ? (
+                            <input
+                              value={filter.value}
+                              onChange={(event) =>
+                                setFilters((current) =>
+                                  current.map((item) =>
+                                    item.id === filter.id
+                                      ? { ...item, value: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder="Value"
+                              className="field-control"
+                            />
+                          ) : (
+                            <div className="field-control flex items-center text-xs text-[var(--muted)]">
+                              No value needed
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={`Remove rule ${index + 1}`}
+                            onClick={() =>
+                              setFilters((current) =>
+                                current.filter((item) => item.id !== filter.id),
+                              )
+                            }
+                            className="icon-button"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void loadPreview({ useFilters: true })}
+                    className="primary-link mt-6"
+                  >
+                    {loading ? (
+                      <LoaderCircle size={14} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    Test filters against live data
+                  </button>
+                  {preview ? (
+                    <div className="test-result mt-5">
+                      <Check size={16} />
+                      <span>
+                        <strong>{preview.matchingRecords.toLocaleString()}</strong> of{" "}
+                        {preview.totalRecords.toLocaleString()} records pass these rules.
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {step === 4 ? (
+                <div>
+                  <h3 className="text-lg font-semibold">Review and publish</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    Namzi will sync this source and keep the published metric updated.
+                  </p>
+                  <label className="mt-6 block">
+                    <span className="field-label">Metric name</span>
+                    <input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      className="field-control mt-2 w-full text-base font-semibold"
+                      placeholder="e.g. Qualified leads"
+                    />
+                  </label>
+                  <div className="mt-6 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
+                    {[
+                      ["Source", currentSourceLabel],
+                      [
+                        "Calculation",
+                        calculation === "count"
+                          ? "Count matching records"
+                          : `${calculation.replaceAll("_", " ")} of ${calculationField}`,
+                      ],
+                      ["Filters", filters.length ? `${filters.length} AND rules` : "No filters"],
+                      [
+                        "Live result",
+                        preview ? formatMetricValue(preview.metricValue) : "Not tested",
+                      ],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="grid grid-cols-[130px_1fr] gap-4 px-4 py-3 text-sm"
+                      >
+                        <span className="text-[var(--muted)]">{label}</span>
+                        <span className="font-medium">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={publishMetric}
+                    disabled={publishing || !name.trim()}
+                    className="primary-link mt-6"
+                  >
+                    {publishing ? (
+                      <LoaderCircle size={15} className="animate-spin" />
+                    ) : (
+                      <Check size={15} />
+                    )}
+                    {publishing ? "Publishing metric…" : "Publish metric"}
+                  </button>
+                </div>
+              ) : null}
+
+              {error ? <div className="error-panel mt-6">{error}</div> : null}
+            </div>
+            <div className="flex items-center justify-between border-t border-[var(--line)] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setStep((current) => Math.max(0, current - 1))}
+                disabled={step === 0 || loading || publishing}
+                className="secondary-link"
+              >
+                <ArrowLeft size={14} /> Back
+              </button>
+              {step < 4 ? (
+                <button
+                  type="button"
+                  onClick={nextStep}
+                  disabled={loading || (step === 0 && !sourceReady) || (step >= 1 && !preview)}
+                  className="primary-link"
+                >
+                  Continue <ArrowRight size={14} />
+                </button>
+              ) : null}
+            </div>
+          </main>
+
+          <aside className="data-inspector">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] p-4">
+              <div>
+                <p className="text-sm font-semibold">Data inspector</p>
+                <p className="mt-1 max-w-[250px] truncate text-xs text-[var(--muted)]">
+                  {currentSourceLabel}
+                </p>
+              </div>
+              <span className="live-badge">LIVE</span>
+            </div>
+            {preview?.records.length ? (
+              <>
+                <div className="flex gap-1 border-b border-[var(--line)] p-3">
+                  {preview.records.map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setSelectedRecord(index)}
+                      className={`record-tab ${selectedRecord === index ? "record-tab-active" : ""}`}
+                    >
+                      Record {index + 1}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2 border-b border-[var(--line)] p-4">
+                  <div className="mini-stat">
+                    <span>Matching</span>
+                    <strong>{preview.matchingRecords.toLocaleString()}</strong>
+                  </div>
+                  <div className="mini-stat">
+                    <span>Metric result</span>
+                    <strong>{formatMetricValue(preview.metricValue)}</strong>
+                  </div>
+                </div>
+                <div className="max-h-[510px] overflow-y-auto">
+                  {fields.map((field) => (
+                    <div key={field.path} className="inspector-field">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-xs font-semibold text-[var(--muted)]">
+                          {field.path}
+                        </span>
+                        <span className="field-type">{field.type}</span>
+                      </div>
+                      <p className="mt-1.5 break-words text-sm">
+                        {fieldValue(dataRecord?.[field.path])}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="grid min-h-[580px] place-items-center p-8 text-center">
+                <div>
+                  <Table2 size={24} className="mx-auto text-[var(--muted)]" />
+                  <p className="mt-3 text-sm font-semibold">No test record loaded</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                    Select a source and Namzi will show the latest real records and every detected
+                    field here.
+                  </p>
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

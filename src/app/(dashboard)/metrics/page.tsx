@@ -20,30 +20,26 @@ export default async function MetricsPage() {
     <div className="mx-auto max-w-6xl">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-[var(--brand)]">Deterministic definitions</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">Metrics</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+            Metric library
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Metrics</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Every listed metric is a genuine tenant-owned definition with an immutable version.
+            Live business definitions built from connected sources, real records, and explicit
+            filters.
           </p>
         </div>
-        <Link
-          href="/metrics/new"
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white"
-        >
+        <Link href="/metrics/new" className="primary-link">
           <Plus size={16} /> Build metric
         </Link>
       </div>
       {rows.length === 0 ? (
         <section className="shell-card mt-7 px-6 py-14 text-center">
-          <h2 className="text-xl font-bold">No published metrics yet</h2>
+          <h2 className="text-xl font-semibold">No published metrics yet</h2>
           <p className="mx-auto mt-2 max-w-lg text-sm text-[var(--muted)]">
-            Build and preview a definition against real activity facts. Empty data remains empty; no
-            starter KPI is presented as customer data.
+            Choose a connected app, inspect recent source records, and build the first live KPI.
           </p>
-          <Link
-            href="/metrics/new"
-            className="mt-5 inline-flex h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white"
-          >
+          <Link href="/metrics/new" className="primary-link mt-5">
             Build the first metric
           </Link>
         </section>
@@ -53,17 +49,20 @@ export default async function MetricsPage() {
             <Link
               key={metric.id}
               href={`/metrics/${metric.slug}`}
-              className="shell-card p-5 transition hover:border-slate-400"
+              className="shell-card group p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]"
             >
               <div className="flex items-start justify-between">
-                <span className="rounded-md bg-[var(--brand-soft)] px-2 py-1 text-[10px] font-bold text-[var(--brand-dark)]">
+                <span className="rounded-md border border-[#4a3fa0] bg-[var(--brand-soft)] px-2 py-1 text-[10px] font-bold text-[var(--brand-dark)]">
                   {metric.currentPublishedVersion
                     ? `v${metric.currentPublishedVersion} published`
                     : "draft only"}
                 </span>
-                <ArrowRight size={15} className="text-slate-400" />
+                <ArrowRight
+                  size={15}
+                  className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-white"
+                />
               </div>
-              <h2 className="mt-5 font-bold">{metric.name}</h2>
+              <h2 className="mt-5 font-semibold">{metric.name}</h2>
               <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
                 {metric.description || "No description"}
               </p>

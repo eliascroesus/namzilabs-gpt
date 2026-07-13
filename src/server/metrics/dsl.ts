@@ -40,17 +40,21 @@ export const filterOperatorSchema = z.enum([
   "in",
   "not_in",
   "contains",
+  "not_contains",
   "starts_with",
+  "ends_with",
   "greater_than",
   "greater_than_or_equal",
   "less_than",
   "less_than_or_equal",
   "is_null",
   "is_not_null",
+  "is_empty",
+  "is_not_empty",
 ]);
 
 export const filterConditionSchema = z.object({
-  field: z.string().min(1).max(80),
+  field: z.string().min(1).max(240),
   operator: filterOperatorSchema,
   value: z
     .union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.array(z.number())])
@@ -72,7 +76,21 @@ export const filterNodeSchema: z.ZodType<FilterNode> = z.lazy(() =>
 
 const fieldMeasureSchema = z.object({
   operation: z.enum(["distinct_count", "sum", "average", "minimum", "maximum"]),
-  field: z.string().min(1).max(80),
+  field: z.string().min(1).max(240),
+});
+
+const metricSourceSchema = z.object({
+  connectionId: z.uuid(),
+  provider: z.string().min(1).max(80),
+  resourceType: z.string().min(1).max(500),
+  resourceId: z.string().min(1).max(500),
+  spreadsheetId: z.string().max(200).optional(),
+  spreadsheetName: z.string().max(200).optional(),
+  sheetId: z.number().int().nonnegative().optional(),
+  sheetName: z.string().max(200).optional(),
+  fieldTypes: z
+    .record(z.string(), z.enum(["null", "boolean", "number", "string", "date", "array", "object"]))
+    .default({}),
 });
 
 export const measureSchema = z.union([
@@ -93,10 +111,11 @@ export const measureSchema = z.union([
 export const metricDefinitionSchema = z
   .object({
     dataset: datasetSchema,
+    source: metricSourceSchema.optional(),
     measure: measureSchema,
     filters: z.array(filterNodeSchema).max(20).default([]),
     timeField: z.string().min(1).max(80).optional(),
-    groupBy: z.array(z.string().min(1).max(80)).max(3).default([]),
+    groupBy: z.array(z.string().min(1).max(240)).max(3).default([]),
     timeGrain: z.enum(["hour", "day", "week", "month", "quarter"]).optional(),
     comparison: z.enum(["none", "previous_period"]).default("none"),
     funnelSteps: z

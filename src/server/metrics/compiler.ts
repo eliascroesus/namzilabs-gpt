@@ -93,12 +93,29 @@ class ParameterBag {
   }
 }
 
-function fieldFor(dataset: MetricDefinition["dataset"], field: string): FieldSpec {
-  const specification = datasetCatalog[dataset].fields[field];
-  if (!specification) {
-    throw new AppError("metric_field_not_allowed", `Field '${field}' is not available.`, 400);
+function fieldFor(
+  definition: MetricDefinition,
+  field: string,
+  parameters: ParameterBag,
+): FieldSpec {
+  const specification = datasetCatalog[definition.dataset].fields[field];
+  if (specification) return specification;
+  if (definition.dataset === "source_records" && definition.source && field.startsWith("data.")) {
+    const path = field.slice(5);
+    if (!path || path.includes("\u0000")) {
+      throw new AppError("metric_field_not_allowed", `Field '${field}' is not available.`, 400);
+    }
+    const raw = `("data" ->> ${parameters.add(path)})`;
+    const inferred = definition.source.fieldTypes[field] ?? "string";
+    if (inferred === "number") {
+      return {
+        sql: `(CASE WHEN ${raw} ~ '^-?[0-9]+([.][0-9]+)?$' THEN ${raw}::numeric ELSE NULL END)`,
+        kind: "number",
+      };
+    }
+    return { sql: raw, kind: "string" };
   }
-  return specification;
+  throw new AppError("metric_field_not_allowed", `Field '${field}' is not available.`, 400);
 }
 
 function validateValue(kind: FieldKind, value: unknown): void {
@@ -129,16 +146,18 @@ function validateValue(kind: FieldKind, value: unknown): void {
 }
 
 function compileFilter(
-  dataset: MetricDefinition["dataset"],
+  definition: MetricDefinition,
   node: FilterNode,
   parameters: ParameterBag,
 ): string {
   if ("conjunction" in node) {
-    return `(${node.filters.map((child) => compileFilter(dataset, child, parameters)).join(` ${node.conjunction.toUpperCase()} `)})`;
+    return `(${node.filters.map((child) => compileFilter(definition, child, parameters)).join(` ${node.conjunction.toUpperCase()} `)})`;
   }
-  const field = fieldFor(dataset, node.field);
+  const field = fieldFor(definition, node.field, parameters);
   if (node.operator === "is_null") return `${field.sql} IS NULL`;
   if (node.operator === "is_not_null") return `${field.sql} IS NOT NULL`;
+  if (node.operator === "is_empty") return `(${field.sql} IS NULL OR ${field.sql} = '')`;
+  if (node.operator === "is_not_empty") return `(${field.sql} IS NOT NULL AND ${field.sql} <> '')`;
   if (node.value === undefined) {
     throw new AppError("metric_value_required", "This filter requires a value.", 400);
   }
@@ -168,7 +187,15 @@ function compileFilter(
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
-  const value = node.operator === "contains" ? `%${escaped}%` : `${escaped}%`;
+  const value =
+    node.operator === "contains" || node.operator === "not_contains"
+      ? `%${escaped}%`
+      : node.operator === "ends_with"
+        ? `%${escaped}`
+        : `${escaped}%`;
+  if (node.operator === "not_contains") {
+    return `${field.sql} NOT ILIKE ${parameters.add(value)} ESCAPE '\\'`;
+  }
   return `${field.sql} ILIKE ${parameters.add(value)} ESCAPE '\\'`;
 }
 
@@ -177,7 +204,7 @@ function compileFilters(
   parameters: ParameterBag,
   filters = definition.filters,
 ): string[] {
-  return filters.map((filter) => compileFilter(definition.dataset, filter, parameters));
+  return filters.map((filter) => compileFilter(definition, filter, parameters));
 }
 
 function measureExpression(definition: MetricDefinition, parameters: ParameterBag): string {
@@ -206,7 +233,7 @@ function measureExpression(definition: MetricDefinition, parameters: ParameterBa
       compileFilters(definition, parameters, measure.denominatorFilters).join(" AND ") || "TRUE";
     return `(COUNT(*) FILTER (WHERE ${numerator}))::numeric * 100 / NULLIF((COUNT(*) FILTER (WHERE ${denominator}))::numeric, 0) AS "value"`;
   }
-  const field = fieldFor(definition.dataset, measure.field);
+  const field = fieldFor(definition, measure.field, parameters);
   if (
     ["sum", "average", "minimum", "maximum"].includes(measure.operation) &&
     field.kind !== "number"
@@ -240,6 +267,10 @@ export function compileMetric(
   const catalog = datasetCatalog[definition.dataset];
   const parameters = new ParameterBag();
   const where = [`"organization_id" = ${parameters.add(organizationId)}`];
+  if (definition.source) {
+    where.push(`"connection_id" = ${parameters.add(definition.source.connectionId)}`);
+    where.push(`"resource_type" = ${parameters.add(definition.source.resourceType)}`);
+  }
   where.push(...compileFilters(definition, parameters));
   if (window) {
     assertTimezone(window.timezone);
@@ -248,7 +279,7 @@ export function compileMetric(
     const timeFieldName = definition.timeField ?? catalog.defaultTimeField;
     if (!timeFieldName)
       throw new AppError("metric_time_field_required", "Choose a time field.", 400);
-    const timeField = fieldFor(definition.dataset, timeFieldName);
+    const timeField = fieldFor(definition, timeFieldName, parameters);
     if (timeField.kind !== "timestamp")
       throw new AppError("metric_time_field_type", "Choose a date field.", 400);
     where.push(`${timeField.sql} >= ${parameters.add(window.start.toISOString())}`);
@@ -259,7 +290,7 @@ export function compileMetric(
   const selectParts: string[] = [];
   const groupParts: string[] = [];
   if (definition.timeGrain) {
-    const timeField = fieldFor(definition.dataset, definition.timeField!);
+    const timeField = fieldFor(definition, definition.timeField!, parameters);
     const timezone = parameters.add(window?.timezone ?? "UTC");
     const grain = definition.timeGrain;
     const expression = `DATE_TRUNC('${grain}', ${timeField.sql} AT TIME ZONE ${timezone})`;
@@ -267,7 +298,7 @@ export function compileMetric(
     groupParts.push(expression);
   }
   for (const group of definition.groupBy) {
-    const field = fieldFor(definition.dataset, group);
+    const field = fieldFor(definition, group, parameters);
     selectParts.push(`${field.sql} AS "${group}"`);
     groupParts.push(field.sql);
   }
@@ -278,11 +309,16 @@ export function compileMetric(
   const text = `SELECT ${selectParts.join(", ")} FROM "${catalog.table}" WHERE ${where.join(" AND ")}${groupBy}`;
   const recordParameters = new ParameterBag();
   const recordWhere = [`"organization_id" = ${recordParameters.add(organizationId)}`];
+  if (definition.source) {
+    recordWhere.push(`"connection_id" = ${recordParameters.add(definition.source.connectionId)}`);
+    recordWhere.push(`"resource_type" = ${recordParameters.add(definition.source.resourceType)}`);
+  }
   recordWhere.push(...compileFilters(definition, recordParameters));
   if (window) {
     const timeField = fieldFor(
-      definition.dataset,
+      definition,
       definition.timeField ?? catalog.defaultTimeField!,
+      recordParameters,
     );
     recordWhere.push(`${timeField.sql} >= ${recordParameters.add(window.start.toISOString())}`);
     recordWhere.push(`${timeField.sql} < ${recordParameters.add(window.end.toISOString())}`);

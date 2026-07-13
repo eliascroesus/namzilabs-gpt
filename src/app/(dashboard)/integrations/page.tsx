@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { AlertTriangle, ArrowRight, CheckCircle2, Plus } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Plus, Radio, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { connectors } from "@/connectors/registry";
@@ -33,28 +33,33 @@ export default async function IntegrationsPage() {
     <div className="mx-auto max-w-6xl">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-[var(--brand)]">Data sources</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">Integrations</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+            Data sources
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Connected apps</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            Real connection health and the connector types enabled in this environment.
+            Connect each account once. Choose its objects, spreadsheets, tabs, fields, and filters
+            later when you build a metric.
           </p>
         </div>
-        <Link
-          href="/integrations/new/webhook"
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white"
-        >
+        <Link href="/integrations/new/webhook" className="secondary-link">
           <Plus size={16} /> New webhook
         </Link>
       </div>
 
       <section className="mt-8">
-        <h2 className="text-lg font-bold">Connected sources</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Your connections</h2>
+          <span className="status-pill">
+            <Radio size={12} /> {rows.length} connected
+          </span>
+        </div>
         {rows.length === 0 ? (
           <div className="mt-3 rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">
             No provider has been connected for this organization.
           </div>
         ) : (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {rows.map((connection) => {
               const healthy =
                 connection.status === "active" &&
@@ -63,16 +68,22 @@ export default async function IntegrationsPage() {
                 <Link
                   key={connection.id}
                   href={`/integrations/${connection.id}`}
-                  className="shell-card flex items-center justify-between gap-4 p-4"
+                  className="shell-card group flex items-center justify-between gap-4 p-4 transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]"
                 >
-                  <div>
-                    <p className="font-semibold">{connection.name}</p>
-                    <p className="mt-1 text-xs capitalize text-[var(--muted)]">
-                      {connection.provider} · {connection.freshness}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="provider-mark size-10">
+                      {connectors.find((item) => item.manifest.id === connection.provider)?.manifest
+                        .logo ?? "API"}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{connection.name}</p>
+                      <p className="mt-1 truncate text-xs text-[var(--muted)]">
+                        {connection.externalAccountName ?? connection.provider}
+                      </p>
+                    </div>
                   </div>
                   <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${healthy ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold ${healthy ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-300"}`}
                   >
                     {healthy ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
                     {connection.status}
@@ -85,23 +96,29 @@ export default async function IntegrationsPage() {
       </section>
 
       <section className="mt-9">
-        <h2 className="text-lg font-bold">Add a source</h2>
+        <div>
+          <h2 className="text-base font-semibold">Add an app</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Authorize an account here. Data selection happens inside the metric builder.
+          </p>
+        </div>
         <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {connectors.map((connector) => {
             const enabled = available(connector.manifest.id);
             const content = (
               <>
                 <div className="flex items-start justify-between">
-                  <span className="grid size-11 place-items-center rounded-xl bg-[var(--brand-soft)] text-sm font-bold text-[var(--brand-dark)]">
-                    {connector.manifest.logo}
-                  </span>
+                  <span className="provider-mark size-11">{connector.manifest.logo}</span>
                   {enabled ? (
-                    <ArrowRight size={17} className="text-slate-400" />
+                    <ArrowRight
+                      size={17}
+                      className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-white"
+                    />
                   ) : (
                     <AlertTriangle size={17} className="text-amber-600" />
                   )}
                 </div>
-                <h3 className="mt-5 font-bold">{connector.manifest.name}</h3>
+                <h3 className="mt-5 font-semibold">{connector.manifest.name}</h3>
                 <p className="mt-2 min-h-10 text-sm leading-5 text-[var(--muted)]">
                   {enabled
                     ? connector.manifest.description
@@ -111,7 +128,7 @@ export default async function IntegrationsPage() {
                   {connector.manifest.capabilities.slice(0, 3).map((capability) => (
                     <span
                       key={capability}
-                      className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600"
+                      className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[10px] font-medium text-[var(--muted)]"
                     >
                       {capability}
                     </span>
@@ -123,7 +140,7 @@ export default async function IntegrationsPage() {
               <Link
                 key={connector.manifest.id}
                 href={`/integrations/new/${connector.manifest.id}`}
-                className="shell-card p-5 transition hover:border-slate-400"
+                className="shell-card group p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]"
               >
                 {content}
               </Link>
@@ -139,6 +156,10 @@ export default async function IntegrationsPage() {
           })}
         </div>
       </section>
+      <div className="mt-8 flex items-center gap-2 text-xs text-[var(--muted)]">
+        <ShieldCheck size={14} className="text-[var(--success)]" /> Credentials are encrypted; data
+        access remains tenant-scoped and read-only where supported.
+      </div>
     </div>
   );
 }

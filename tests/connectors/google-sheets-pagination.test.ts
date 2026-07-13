@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { googleSheetsConnector, planSheetPage } from "@/connectors/providers/google-sheets";
+import {
+  columnName,
+  googleSheetsConnector,
+  planSheetPage,
+} from "@/connectors/providers/google-sheets";
 import type { ConnectorContext } from "@/connectors/types";
 
 describe("Google Sheets pagination", () => {
@@ -35,6 +39,13 @@ describe("Google Sheets pagination", () => {
   it("rejects malformed ranges and cursors instead of silently skipping data", () => {
     expect(() => planSheetPage("Leads", undefined, 500)).toThrow("A1 column range");
     expect(() => planSheetPage("Leads!A:Z", "1", 500)).toThrow("cursor is invalid");
+  });
+
+  it("converts discovered sheet widths to bounded A1 columns", () => {
+    expect(columnName(1)).toBe("A");
+    expect(columnName(26)).toBe("Z");
+    expect(columnName(27)).toBe("AA");
+    expect(columnName(702)).toBe("ZZ");
   });
 
   it("uses the configured unique key so row reordering does not change identity", async () => {

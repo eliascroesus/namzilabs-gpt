@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { connections, rawEvents, syncCursors } from "@/db/schema";
+import { connectionResources, connections, rawEvents, syncCursors } from "@/db/schema";
 import type { Database } from "@/db/client";
 import type { ConnectorContext, ProviderId } from "@/connectors/types";
 import { loadCredentials } from "@/server/credentials/service";
@@ -55,7 +55,7 @@ export async function connectionDetails(
   connectionId: string,
 ) {
   const connection = await getConnectionForOrganization(db, organizationId, connectionId);
-  const [cursorRows, eventRows] = await Promise.all([
+  const [cursorRows, eventRows, resourceRows] = await Promise.all([
     db
       .select()
       .from(syncCursors)
@@ -78,8 +78,19 @@ export async function connectionDetails(
       )
       .orderBy(desc(rawEvents.receivedAt))
       .limit(5),
+    db
+      .select()
+      .from(connectionResources)
+      .where(
+        and(
+          eq(connectionResources.organizationId, organizationId),
+          eq(connectionResources.connectionId, connectionId),
+          eq(connectionResources.active, true),
+        ),
+      )
+      .orderBy(desc(connectionResources.updatedAt)),
   ]);
-  return { connection, cursors: cursorRows, recentEvents: eventRows };
+  return { connection, cursors: cursorRows, recentEvents: eventRows, resources: resourceRows };
 }
 
 export function asProviderId(provider: string): ProviderId {

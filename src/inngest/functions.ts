@@ -7,7 +7,7 @@ import { operationalMeasurements, outboxEvents } from "@/db/schema";
 import { inngest } from "@/inngest/client";
 import { markDeadLetter, processRawEvent } from "@/server/ingestion/service";
 import { env } from "@/lib/env";
-import { connections, webhookSubscriptions } from "@/db/schema";
+import { connectionResources, connections, webhookSubscriptions } from "@/db/schema";
 import {
   reconcilePage,
   renewExpiringSubscription,
@@ -27,6 +27,7 @@ const functionFailed = eventType("inngest/function.failed", {
 const connectionReconcile = eventType("namzi/connection.reconcile", {
   schema: z.object({
     connectionId: z.string().uuid(),
+    resourceId: z.string().uuid().optional(),
     cursor: z.string().optional(),
     runId: z.string().uuid().optional(),
   }),
@@ -101,6 +102,40 @@ export const reconcileConnectionFunction = inngest.createFunction(
     triggers: [connectionReconcile],
   },
   async ({ event, step }) => {
+    if (!event.data.resourceId) {
+      const resourceDiscovery = await step.run("load-tracked-resources", async () => {
+        const [connection] = await getDb()
+          .select({ provider: connections.provider })
+          .from(connections)
+          .where(eq(connections.id, event.data.connectionId))
+          .limit(1);
+        if (connection?.provider !== "google-sheets") {
+          return { isGoogleSheets: false, resources: [] };
+        }
+        const resources = await getDb()
+          .select({ id: connectionResources.id })
+          .from(connectionResources)
+          .where(
+            and(
+              eq(connectionResources.connectionId, event.data.connectionId),
+              eq(connectionResources.active, true),
+            ),
+          );
+        return { isGoogleSheets: true, resources };
+      });
+      if (resourceDiscovery.isGoogleSheets) {
+        const resources = resourceDiscovery.resources;
+        if (!resources.length) return { resources: 0, fannedOut: false };
+        await step.sendEvent(
+          "fan-out-tracked-resources",
+          resources.map((resource) => ({
+            name: "namzi/connection.reconcile",
+            data: { connectionId: event.data.connectionId, resourceId: resource.id },
+          })),
+        );
+        return { resources: resources.length, fannedOut: true };
+      }
+    }
     let cursor: string | undefined = event.data.cursor;
     let runId: string | undefined = event.data.runId;
     let pages = 0;
@@ -110,6 +145,7 @@ export const reconcileConnectionFunction = inngest.createFunction(
       const page = await step.run(`reconcile-page-${pages}`, async () =>
         reconcilePage(getDb(), {
           connectionId: event.data.connectionId,
+          resourceId: event.data.resourceId,
           cursor,
           runId,
           callbackUrl: `${env().APP_URL}/api/webhooks/${event.data.connectionId}`,
@@ -124,7 +160,12 @@ export const reconcileConnectionFunction = inngest.createFunction(
     if (cursor && runId) {
       await step.sendEvent("continue-reconciliation", {
         name: "namzi/connection.reconcile",
-        data: { connectionId: event.data.connectionId, cursor, runId },
+        data: {
+          connectionId: event.data.connectionId,
+          resourceId: event.data.resourceId,
+          cursor,
+          runId,
+        },
       });
     }
     return {

@@ -74,4 +74,33 @@ describe("metric SQL compiler", () => {
     );
     expect(compiled.text).toContain("NULLIF");
   });
+
+  it("scopes spreadsheet metrics to one connection and tab while parameterizing column names", () => {
+    const connectionId = "00000000-0000-4000-8000-000000000002";
+    const resourceType = "google-sheet:sheet-id:123";
+    const compiled = compileMetric(
+      parseMetricDefinition({
+        dataset: "source_records",
+        source: {
+          connectionId,
+          provider: "google-sheets",
+          resourceType,
+          resourceId: "sheet-id:123",
+          fieldTypes: { "data.Revenue": "number", "data.Status": "string" },
+        },
+        measure: { operation: "sum", field: "data.Revenue" },
+        filters: [{ field: "data.Status", operator: "equals", value: "Won" }],
+        timeField: "occurred_at",
+      }),
+      organizationId,
+      window,
+    );
+    expect(compiled.text).toContain('"connection_id" = $2');
+    expect(compiled.text).toContain('"resource_type" = $3');
+    expect(compiled.parameters).toContain(connectionId);
+    expect(compiled.parameters).toContain(resourceType);
+    expect(compiled.parameters).toContain("Revenue");
+    expect(compiled.parameters).toContain("Status");
+    expect(compiled.text).not.toContain("Won");
+  });
 });

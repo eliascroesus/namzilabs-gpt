@@ -4,6 +4,7 @@ import { getConnector } from "@/connectors/registry";
 import type { Database } from "@/db/client";
 import {
   activityFacts,
+  connectionResources,
   connections,
   sourceRecords,
   syncCursors,
@@ -24,7 +25,13 @@ export function shouldRenewSubscription(
 
 export async function reconcilePage(
   db: Database,
-  input: { connectionId: string; cursor?: string; runId?: string; callbackUrl: string },
+  input: {
+    connectionId: string;
+    resourceId?: string;
+    cursor?: string;
+    runId?: string;
+    callbackUrl: string;
+  },
 ): Promise<{
   nextCursor: string | null;
   recordsWritten: number;
@@ -38,6 +45,23 @@ export async function reconcilePage(
     .limit(1);
   if (!connection || connection.status === "revoked") {
     throw new AppError("connection_not_found", "Connection not found.", 404);
+  }
+  const [resource] = input.resourceId
+    ? await db
+        .select()
+        .from(connectionResources)
+        .where(
+          and(
+            eq(connectionResources.id, input.resourceId),
+            eq(connectionResources.organizationId, connection.organizationId),
+            eq(connectionResources.connectionId, connection.id),
+            eq(connectionResources.active, true),
+          ),
+        )
+        .limit(1)
+    : [];
+  if (input.resourceId && !resource) {
+    throw new AppError("connection_resource_not_found", "Tracked source not found.", 404);
   }
   const [existingRun] = input.runId
     ? await db
@@ -85,7 +109,13 @@ export async function reconcilePage(
 
   const connector = getConnector(asProviderId(connection.provider));
   try {
-    const context = await connectorContext(db, connection, input.callbackUrl);
+    const baseContext = await connectorContext(db, connection, input.callbackUrl);
+    const context = resource
+      ? {
+          ...baseContext,
+          configuration: { ...baseContext.configuration, ...resource.configuration },
+        }
+      : baseContext;
     const page = input.cursor
       ? await connector.continueBackfill(context, input.cursor)
       : await connector.startBackfill(context);
@@ -191,7 +221,7 @@ export async function reconcilePage(
       if (
         !page.nextCursor &&
         connection.provider === "google-sheets" &&
-        connection.configuration.syncMode !== "append-only"
+        context.configuration.syncMode !== "append-only"
       ) {
         const tombstones = await tx
           .update(sourceRecords)
@@ -200,6 +230,7 @@ export async function reconcilePage(
             and(
               eq(sourceRecords.organizationId, connection.organizationId),
               eq(sourceRecords.connectionId, connection.id),
+              eq(sourceRecords.resourceType, String(context.configuration.resourceType ?? "row")),
               eq(sourceRecords.isDeleted, false),
               lt(sourceRecords.updatedAt, runStartedAt),
             ),
@@ -223,7 +254,7 @@ export async function reconcilePage(
         .values({
           organizationId: connection.organizationId,
           connectionId: connection.id,
-          resourceType: "default",
+          resourceType: resource ? `resource:${resource.id}` : "default",
           cursor: page.nextCursor,
           highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
         })
