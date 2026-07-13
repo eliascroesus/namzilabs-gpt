@@ -50,4 +50,32 @@ describe("prototype password proxy", () => {
       200,
     );
   });
+
+  it("allows the prototype login from the domain currently serving the page", () => {
+    process.env.APP_ENV = "production";
+    process.env.APP_URL = "https://namzilabs.co";
+    const request = new NextRequest("https://namzilabs-preview.vercel.app/api/auth/login", {
+      method: "POST",
+      headers: {
+        origin: "https://namzilabs-preview.vercel.app",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+
+    expect(proxy(request).status).toBe(200);
+  });
+
+  it("keeps the origin check on protected mutation APIs", () => {
+    process.env.APP_ENV = "production";
+    process.env.APP_URL = "https://namzilabs.co";
+    const request = new NextRequest("https://namzilabs-preview.vercel.app/api/connections", {
+      method: "POST",
+      headers: {
+        origin: "https://namzilabs-preview.vercel.app",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+
+    expect(proxy(request).status).toBe(403);
+  });
 });

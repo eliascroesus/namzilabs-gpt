@@ -2,10 +2,6 @@ import { AppError } from "@/lib/errors";
 
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export function isCsrfExemptPath(pathname: string): boolean {
-  return pathname.startsWith("/api/webhooks/") || pathname === "/api/inngest";
-}
-
 export function trustedRequestOrigin(
   request: Pick<Request, "method" | "headers" | "url">,
   appUrl: string,
