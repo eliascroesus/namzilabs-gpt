@@ -17,6 +17,9 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  devIndicators: {
+    position: "bottom-right",
+  },
   experimental: {
     typedEnv: true,
   },
