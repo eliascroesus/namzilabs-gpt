@@ -1,0 +1,39 @@
+name: Setup Production Database
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.14.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run migrations
+        env:
+          DATABASE_DIRECT_URL: ${{ secrets.DATABASE_DIRECT_URL }}
+        run: pnpm db:migrate
+
+      - name: Create Namzi organization
+        env:
+          DATABASE_DIRECT_URL: ${{ secrets.DATABASE_DIRECT_URL }}
+          APP_ORGANIZATION_ID: "00000000-0000-4000-8000-000000000001"
+          ORGANIZATION_NAME: "Namzi Labs"
+          ORGANIZATION_SLUG: "namzi-labs"
+          ORGANIZATION_TIMEZONE: "Europe/Stockholm"
+        run: pnpm db:provision
