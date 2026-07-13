@@ -36,11 +36,7 @@ export default function proxy(request: NextRequest) {
 
   if (
     isApi &&
-    !trustedRequestOrigin(
-      request,
-      process.env.APP_URL ?? request.nextUrl.origin,
-      process.env.APP_ENV === "production",
-    )
+    !trustedRequestOrigin(request, request.nextUrl.origin, process.env.APP_ENV === "production")
   ) {
     return NextResponse.json(
       { error: { code: "csrf_rejected", message: "The request origin was not trusted." } },
