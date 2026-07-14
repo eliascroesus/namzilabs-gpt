@@ -14,7 +14,7 @@ export function ThemeSettings() {
     <section className="shell-card p-5 lg:col-span-2">
       <h2 className="font-bold">Appearance</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Choose how Namzi looks on this browser. Light is the default for dashboards.
+        Choose how Namzi looks on this browser. Dark is the default for dashboards.
       </p>
       <div className="mt-5 grid max-w-xl gap-3 sm:grid-cols-2">
         {choices.map((choice) => {

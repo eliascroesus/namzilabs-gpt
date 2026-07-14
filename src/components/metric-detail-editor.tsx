@@ -709,7 +709,7 @@ export function MetricDetailEditor({
           </code>
           <details className="mt-4 text-xs text-[var(--muted)]">
             <summary className="cursor-pointer font-semibold">Inspect raw definition</summary>
-            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-[#090b0f] p-3 text-[10px] leading-5">
+            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-[var(--surface-2)] p-3 text-[10px] leading-5">
               {JSON.stringify(definition, null, 2)}
             </pre>
           </details>

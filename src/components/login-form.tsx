@@ -50,11 +50,11 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
           autoFocus
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-11 w-full rounded-lg border border-[var(--line)] bg-white pl-10 pr-3 outline-none focus:border-[var(--brand)]"
+          className="login-input h-11 w-full rounded-lg border border-[var(--line)] pl-10 pr-3 outline-none focus:border-[var(--brand)]"
         />
       </div>
       {error ? (
-        <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className="login-error mt-3 rounded-lg px-3 py-2 text-sm">
           {error}
         </p>
       ) : null}

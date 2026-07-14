@@ -446,7 +446,7 @@ export function MetricBuilder({
   const [timestampField, setTimestampField] = useState("");
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [visualization, setVisualization] = useState<VisualizationDisplay>("kpi");
-  const [visualizationColor, setVisualizationColor] = useState("#8b5cf6");
+  const [visualizationColor, setVisualizationColor] = useState("#ff7417");
   const [name, setName] = useState("New metric");
   const [category, setCategory] = useState("Uncategorized");
   const [loading, setLoading] = useState(false);

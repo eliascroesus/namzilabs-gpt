@@ -44,8 +44,8 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
         >
           <defs>
             <linearGradient id="namzi-trend-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#7865ff" stopOpacity="0.34" />
-              <stop offset="100%" stopColor="#7865ff" stopOpacity="0" />
+              <stop offset="0%" stopColor="#ff7417" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#ff7417" stopOpacity="0" />
             </linearGradient>
           </defs>
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
@@ -57,7 +57,7 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
                 x2={width - paddingX}
                 y1={y}
                 y2={y}
-                stroke="#252b36"
+                stroke="var(--chart-grid)"
                 strokeDasharray="3 6"
               />
             );
@@ -67,7 +67,7 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
             <polyline
               points={line}
               fill="none"
-              stroke="#8b7cff"
+              stroke="var(--chart-series-1)"
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -75,7 +75,13 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
           ) : null}
           {coordinates.map((point, index) =>
             points[index]?.value ? (
-              <circle key={points[index]?.date} cx={point.x} cy={point.y} r="3" fill="#b5aaff" />
+              <circle
+                key={points[index]?.date}
+                cx={point.x}
+                cy={point.y}
+                r="3"
+                fill="var(--chart-series-1)"
+              />
             ) : null,
           )}
           {[0, 7, 14, 21, 29].map((index) => {
@@ -88,7 +94,7 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
                 x={point.x}
                 y={height - 8}
                 textAnchor={index === 0 ? "start" : index === 29 ? "end" : "middle"}
-                fill="#778195"
+                fill="var(--muted)"
                 fontSize="11"
               >
                 {new Date(`${source.date}T00:00:00Z`).toLocaleDateString("en", {

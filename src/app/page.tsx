@@ -13,7 +13,7 @@ import { PublicFooter, PublicHeader } from "@/components/public-site";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[#f8faf9]">
+    <div className="public-page">
       <PublicHeader />
       <main>
         <section className="mx-auto grid max-w-6xl gap-12 px-6 pb-20 pt-16 lg:grid-cols-[1.05fr_.95fr] lg:pt-24">
@@ -52,8 +52,8 @@ export default function HomePage() {
               .
             </p>
           </div>
-          <div className="shell-card overflow-hidden p-3">
-            <div className="rounded-xl bg-[#17231f] p-6 text-white">
+          <div className="public-panel shell-card overflow-hidden p-3">
+            <div className="marketing-showcase rounded-xl p-6">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-semibold">Reliable by construction</span>
                 <span className="rounded-full bg-emerald-400/15 px-2.5 py-1 text-xs text-emerald-300">
@@ -68,7 +68,7 @@ export default function HomePage() {
                 ].map(([name, detail, status]) => (
                   <div
                     key={name}
-                    className="flex items-center justify-between rounded-xl bg-white/7 px-4 py-3"
+                    className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3"
                   >
                     <div>
                       <div className="text-sm font-semibold">{name}</div>
@@ -106,7 +106,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="border-y border-[var(--line)] bg-white">
+        <section className="marketing-section border-y border-[var(--line)]">
           <div className="mx-auto max-w-6xl px-6 py-16">
             <div className="max-w-2xl">
               <p className="text-sm font-semibold text-[var(--brand)]">Calm, not chaotic</p>
@@ -136,7 +136,7 @@ export default function HomePage() {
                 return (
                   <article
                     key={String(title)}
-                    className="rounded-xl border border-[var(--line)] p-5"
+                    className="marketing-feature rounded-xl border border-[var(--line)] p-5"
                   >
                     <span className="grid size-10 place-items-center rounded-lg bg-[var(--brand-soft)] text-[var(--brand)]">
                       <FeatureIcon size={19} aria-hidden="true" />
@@ -153,7 +153,7 @@ export default function HomePage() {
         </section>
 
         <section className="mx-auto max-w-6xl px-6 py-16">
-          <div className="rounded-2xl bg-[var(--brand)] px-6 py-10 text-white sm:px-10 sm:py-12">
+          <div className="marketing-cta rounded-2xl px-6 py-10 text-white sm:px-10 sm:py-12">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-emerald-100">

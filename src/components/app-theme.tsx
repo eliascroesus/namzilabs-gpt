@@ -22,9 +22,9 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     },
     () => {
       const saved = window.localStorage.getItem(storageKey);
-      return saved === "dark" ? "dark" : "light";
+      return saved === "light" ? "light" : "dark";
     },
-    () => "light" as AppTheme,
+    () => "dark" as AppTheme,
   );
 
   function setTheme(next: AppTheme) {

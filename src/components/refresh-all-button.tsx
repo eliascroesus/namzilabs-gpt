@@ -60,7 +60,7 @@ export function RefreshAllButton({ compact = false }: { compact?: boolean }) {
       {message ? (
         <div
           role="status"
-          className={`absolute right-0 top-full z-30 mt-2 w-72 rounded-lg border p-3 text-xs shadow-2xl ${state === "error" ? "border-amber-400/30 bg-[#211b10] text-amber-200" : "border-emerald-400/30 bg-[#102019] text-emerald-200"}`}
+          className={`refresh-toast absolute right-0 top-full z-30 mt-2 w-72 rounded-lg border p-3 text-xs shadow-2xl ${state === "error" ? "refresh-toast-error" : "refresh-toast-success"}`}
         >
           {message}
         </div>

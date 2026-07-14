@@ -6,7 +6,7 @@ import { BrandWordmark } from "@/components/brand-wordmark";
 
 export function PublicHeader() {
   return (
-    <header className="border-b border-[var(--line)] bg-white/90 backdrop-blur">
+    <header className="public-header border-b border-[var(--line)] backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="flex items-center" aria-label="Namzilabs home">
           <BrandWordmark />
@@ -24,10 +24,7 @@ export function PublicHeader() {
           >
             Terms
           </Link>
-          <Link
-            href="/overview"
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 font-semibold text-white"
-          >
+          <Link href="/overview" className="primary-link">
             Open workspace <ArrowRight size={15} aria-hidden="true" />
           </Link>
         </nav>
@@ -38,7 +35,7 @@ export function PublicHeader() {
 
 export function PublicFooter() {
   return (
-    <footer className="border-t border-[var(--line)] bg-white">
+    <footer className="public-footer border-t border-[var(--line)]">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-8 text-sm text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
         <div>
           <BrandWordmark />
@@ -76,7 +73,7 @@ export function LegalPage({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-[var(--background)]">
+    <div className="public-page">
       <PublicHeader />
       <main className="mx-auto max-w-3xl px-6 py-14 sm:py-20">
         <p className="text-sm font-semibold text-[var(--brand)]">{eyebrow}</p>

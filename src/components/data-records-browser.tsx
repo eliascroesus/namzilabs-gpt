@@ -100,7 +100,7 @@ export function DataRecordsBrowser({ rows }: { rows: DataRecordRow[] }) {
           ))}
         </select>
       </div>
-      <div className="flex items-center justify-between border-y border-[var(--line)] bg-[#0d1015] px-5 py-2.5 text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+      <div className="flex items-center justify-between border-y border-[var(--line)] bg-[var(--surface-2)] px-5 py-2.5 text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
         <span>Latest synchronized data</span>
         <span className="inline-flex items-center gap-1.5">
           <ShieldCheck size={12} /> Tenant isolated

@@ -93,7 +93,7 @@ export default async function SettingsPage() {
           <p className="mt-1 text-xs text-[var(--muted)]">
             All dashboard windows and date buckets use this IANA timezone.
           </p>
-          <div className="mt-5 max-w-sm rounded-lg border border-[var(--line)] bg-slate-50 px-4 py-3 text-sm font-semibold">
+          <div className="mt-5 max-w-sm rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3 text-sm font-semibold">
             {organization?.timezone ?? "UTC"}
           </div>
           <p className="mt-3 text-xs text-[var(--muted)]">
@@ -143,7 +143,7 @@ export default async function SettingsPage() {
               </div>
             </div>
           ) : (
-            <p className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-[var(--muted)]">
+            <p className="mt-5 rounded-lg bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">
               Administrator access is required to inspect operational measurements.
             </p>
           )}

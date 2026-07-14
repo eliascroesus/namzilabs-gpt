@@ -37,6 +37,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [signingOut, setSigningOut] = useState(false);
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
   const navigationPending = navigatingTo !== null && pathname !== navigatingTo;
+  const activePage =
+    navigation.find((item) => pathname.startsWith(item.href))?.label ??
+    (pathname.startsWith("/settings") ? "Settings" : "Workspace");
 
   async function signOut() {
     setSigningOut(true);
@@ -51,8 +54,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {navigationPending ? <div className="app-route-progress" aria-hidden="true" /> : null}
       <aside className="app-sidebar">
         <Link href="/overview" className="app-sidebar-brand" aria-label="Namzilabs overview">
-          <span aria-hidden="true">n.</span>
+          <span className="app-sidebar-brand-mark" aria-hidden="true">
+            n.
+          </span>
+          <span className="app-sidebar-brand-copy">
+            <strong>Namzi Data</strong>
+            <small>Metrics workspace</small>
+          </span>
         </Link>
+        <p className="app-nav-section">Workspace</p>
         <nav aria-label="Primary navigation" className="app-navigation">
           {navigation.map((item) => (
             <Link
@@ -69,14 +79,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
               } ${navigationPending && navigatingTo === item.href ? "app-nav-link-loading" : ""}`}
             >
               <item.icon size={19} aria-hidden="true" />
-              <span className="sr-only">{item.label}</span>
+              <span>{item.label}</span>
             </Link>
           ))}
         </nav>
         <div className="sidebar-bottom-navigation">
+          <p className="app-nav-section">Account</p>
           <Link href="/terms" className="app-nav-link" title="Help" data-label="Help">
             <HelpCircle size={19} aria-hidden="true" />
-            <span className="sr-only">Help</span>
+            <span>Help</span>
           </Link>
           <Link
             href="/settings"
@@ -86,7 +97,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             aria-current={pathname.startsWith("/settings") ? "page" : undefined}
           >
             <Settings size={19} aria-hidden="true" />
-            <span className="sr-only">Settings</span>
+            <span>Settings</span>
           </Link>
           <button
             type="button"
@@ -97,16 +108,22 @@ function AppShellContent({ children }: { children: ReactNode }) {
             data-label={signingOut ? "Signing out…" : "Log out"}
           >
             <LogOut size={19} aria-hidden="true" />
-            <span className="sr-only">{signingOut ? "Signing out…" : "Log out"}</span>
+            <span>{signingOut ? "Signing out…" : "Log out"}</span>
           </button>
         </div>
       </aside>
-      <main
-        className="app-main min-w-0 px-4 py-6 sm:px-7 lg:ml-[72px] lg:px-9 lg:py-8"
-        aria-busy={navigationPending}
-      >
-        {children}
-      </main>
+      <div className="app-workspace">
+        <header className="app-topbar">
+          <div className="app-breadcrumb">
+            <span>Namzi Data</span>
+            <span aria-hidden="true">/</span>
+            <strong>{activePage}</strong>
+          </div>
+        </header>
+        <main className="app-main min-w-0" aria-busy={navigationPending}>
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

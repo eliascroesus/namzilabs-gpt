@@ -16,7 +16,7 @@ export default async function LoginPage({
 }) {
   const nextPath = safeNextPath((await searchParams).next);
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--background)]">
+    <div className="public-page flex min-h-screen flex-col">
       <PublicHeader />
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-14">
         <p className="text-sm font-semibold text-[var(--brand)]">Private prototype</p>

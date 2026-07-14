@@ -29,7 +29,7 @@ export type VisualizationConfiguration = {
   pieMetricIds: string[];
 };
 
-const piePalette = ["#7c3aed", "#2563eb", "#0891b2", "#059669", "#ea580c", "#db2777"];
+const piePalette = ["#ff7417", "#ff9b52", "#d9560b", "#16a37a", "#d7a641", "#8f8881"];
 
 function formatValue(value: number | null, percentage = false): string {
   if (value === null) return "—";
