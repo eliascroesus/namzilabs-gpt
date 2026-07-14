@@ -115,7 +115,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       <div className="app-workspace">
         <header className="app-topbar">
           <div className="app-breadcrumb">
-            <span>Namzi Data</span>
+            <span>Dashboard</span>
             <span aria-hidden="true">/</span>
             <strong>{activePage}</strong>
           </div>

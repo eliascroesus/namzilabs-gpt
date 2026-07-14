@@ -60,7 +60,7 @@ export default async function MetricsPage() {
           </Link>
         </section>
       ) : (
-        <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="metric-library-grid mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((metric) => (
             <MetricCard
               key={metric.id}

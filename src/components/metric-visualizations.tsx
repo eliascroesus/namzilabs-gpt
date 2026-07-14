@@ -57,6 +57,10 @@ function TrendGraphic({
   color: string;
   metricName: string;
 }) {
+  const chartColor = ["#8b5cf6", "#8b7cff", "#7c3aed", "#6f5cff"].includes(color.toLowerCase())
+    ? "#f5741c"
+    : color;
+  const gradientId = `metric-trend-fill-${chartColor.replace("#", "")}`;
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const width = 900;
   const height = 270;
@@ -102,9 +106,9 @@ function TrendGraphic({
         onMouseLeave={() => setHoveredIndex(null)}
       >
         <defs>
-          <linearGradient id={`metric-trend-fill-${color.slice(1)}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={allEstimated ? "#d97706" : color} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={allEstimated ? "#d97706" : chartColor} stopOpacity="0.2" />
+            <stop offset="100%" stopColor={chartColor} stopOpacity="0" />
           </linearGradient>
         </defs>
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
@@ -123,13 +127,11 @@ function TrendGraphic({
         })}
         {chartType === "line" ? (
           <>
-            {area ? (
-              <polygon points={area} fill={`url(#metric-trend-fill-${color.slice(1)})`} />
-            ) : null}
+            {area ? <polygon points={area} fill={`url(#${gradientId})`} /> : null}
             <polyline
               points={polyline}
               fill="none"
-              stroke={allEstimated ? "#d97706" : color}
+              stroke={allEstimated ? "#d97706" : chartColor}
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -147,8 +149,8 @@ function TrendGraphic({
                 y={point.y}
                 width={barWidth}
                 height={Math.max(1, baseline - point.y)}
-                rx="4"
-                fill={item?.estimated ? "#d97706" : color}
+                rx="2"
+                fill={item?.estimated ? "#d97706" : chartColor}
                 opacity={item?.value ? 0.86 : 0.16}
               />
             );
@@ -161,7 +163,7 @@ function TrendGraphic({
                 cx={point.x}
                 cy={point.y}
                 r={points[index]?.estimated ? 4 : 3}
-                fill={points[index]?.estimated ? "#f59e0b" : color}
+                fill={points[index]?.estimated ? "#f59e0b" : chartColor}
                 stroke="var(--card)"
                 strokeWidth="2"
                 opacity={hoveredIndex === index ? 1 : 0.75}
@@ -201,7 +203,7 @@ function TrendGraphic({
               x2={hoveredCoordinate.x}
               y1={paddingTop}
               y2={paddingTop + usableHeight}
-              stroke={hoveredPoint.estimated ? "#d97706" : color}
+              stroke={hoveredPoint.estimated ? "#d97706" : chartColor}
               strokeDasharray="3 4"
               opacity="0.65"
             />
@@ -211,13 +213,13 @@ function TrendGraphic({
               width={tooltipWidth}
               height={hoveredPoint.estimated ? 62 : 48}
               rx="9"
-              fill="var(--foreground)"
+              fill="var(--surface-3)"
               opacity="0.96"
             />
-            <text x={tooltipX + 12} y="27" fill="var(--card)" fontSize="11" fontWeight="650">
+            <text x={tooltipX + 12} y="27" fill="var(--foreground)" fontSize="11" fontWeight="650">
               {pointLabel(hoveredPoint, hourly)}
             </text>
-            <text x={tooltipX + 12} y="43" fill="var(--card)" fontSize="11">
+            <text x={tooltipX + 12} y="43" fill="var(--muted)" fontSize="11">
               {metricName}: {formatValue(hoveredPoint.value)}
             </text>
             {hoveredPoint.estimated ? (
@@ -297,7 +299,7 @@ export function MetricVisualizations({
       className={`metric-visualization-grid ${showTrend && showPie ? "xl:grid-cols-[minmax(0,1.6fr)_minmax(340px,.75fr)]" : "grid-cols-1"}`}
     >
       {showTrend ? (
-        <article className="shell-card overflow-hidden p-5">
+        <article className="metric-trend-panel shell-card overflow-hidden p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -378,7 +380,7 @@ export function MetricVisualizations({
       ) : null}
 
       {showPie ? (
-        <article className="shell-card p-5">
+        <article className="metric-pie-panel shell-card p-5">
           <div className="flex items-center gap-2">
             <ChartPie size={16} className="text-[var(--accent)]" />
             <h2 className="text-base font-semibold">Metric mix</h2>

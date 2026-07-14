@@ -47,7 +47,7 @@ export function MetricCard({
   if (deleted) return null;
 
   return (
-    <article className="shell-card group relative flex min-h-56 flex-col p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]">
+    <article className="metric-library-card shell-card group relative flex min-h-56 flex-col p-5 transition hover:border-[var(--line-strong)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <span className="metric-category-badge">{metric.category}</span>

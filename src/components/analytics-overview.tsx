@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, isNull, lt } from "drizzle-orm";
-import { Plus, Radio } from "lucide-react";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 
 import { DashboardDataCards } from "@/components/dashboard-data-cards";
@@ -296,16 +296,8 @@ export async function AnalyticsOverview({
 
   return (
     <div className="mx-auto max-w-[1500px]">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-            <Radio size={12} /> Command center
-          </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            A focused view of the numbers that matter right now.
-          </p>
-        </div>
+      <div className="dashboard-page-header flex flex-wrap items-center justify-between gap-4">
+        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         <div className="flex flex-wrap gap-2">
           <RefreshAllButton />
           <Link href="/metrics/new" className="primary-link">
