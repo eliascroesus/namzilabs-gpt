@@ -19,23 +19,32 @@ export function MetricCard({
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function deleteMetric() {
-    if (!window.confirm(`Delete “${metric.name}” and all of its versions?`)) return;
+    if (!window.confirm(`Remove “${metric.name}” from the workspace?`)) return;
     setDeleting(true);
     setError(null);
     try {
       const response = await fetch(`/api/metrics/${metric.id}`, { method: "DELETE" });
-      const result = (await response.json()) as { error?: { message?: string } };
+      const result = (await response.json()) as {
+        requestId?: string;
+        error?: { message?: string };
+      };
       if (!response.ok)
-        throw new Error(result.error?.message ?? "The metric could not be deleted.");
+        throw new Error(
+          `${result.error?.message ?? "The metric could not be deleted."}${result.requestId ? ` Reference: ${result.requestId}` : ""}`,
+        );
+      setDeleted(true);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The metric could not be deleted.");
       setDeleting(false);
     }
   }
+
+  if (deleted) return null;
 
   return (
     <article className="shell-card group relative flex min-h-56 flex-col p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]">

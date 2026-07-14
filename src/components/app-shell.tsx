@@ -35,6 +35,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
+  const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
+  const navigationPending = navigatingTo !== null && pathname !== navigatingTo;
 
   async function signOut() {
     setSigningOut(true);
@@ -46,6 +48,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }
   return (
     <div className="app-shell-layout min-h-screen">
+      {navigationPending ? <div className="app-route-progress" aria-hidden="true" /> : null}
       <aside className="app-sidebar">
         <Link href="/overview" className="app-sidebar-brand" aria-label="Namzilabs overview">
           <span aria-hidden="true">n.</span>
@@ -57,10 +60,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
               href={item.href}
               title={item.label}
               data-label={item.label}
+              onClick={() => {
+                if (pathname !== item.href) setNavigatingTo(item.href);
+              }}
               aria-current={pathname.startsWith(item.href) ? "page" : undefined}
               className={`app-nav-link ${
                 pathname.startsWith(item.href) ? "app-nav-link-active" : ""
-              }`}
+              } ${navigationPending && navigatingTo === item.href ? "app-nav-link-loading" : ""}`}
             >
               <item.icon size={19} aria-hidden="true" />
               <span className="sr-only">{item.label}</span>
@@ -95,7 +101,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="app-main min-w-0 px-4 py-6 sm:px-7 lg:ml-[72px] lg:px-9 lg:py-8">
+      <main
+        className="app-main min-w-0 px-4 py-6 sm:px-7 lg:ml-[72px] lg:px-9 lg:py-8"
+        aria-busy={navigationPending}
+      >
         {children}
       </main>
     </div>

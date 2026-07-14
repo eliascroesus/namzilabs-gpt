@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 
@@ -30,7 +30,7 @@ export default async function MetricsPage() {
         eq(metricVersions.version, metrics.currentPublishedVersion),
       ),
     )
-    .where(eq(metrics.organizationId, tenant.organizationId))
+    .where(and(eq(metrics.organizationId, tenant.organizationId), isNull(metrics.archivedAt)))
     .orderBy(desc(metrics.updatedAt));
   return (
     <div className="mx-auto max-w-6xl">

@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -28,7 +28,13 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
   const [metric] = await db
     .select()
     .from(metrics)
-    .where(and(eq(metrics.organizationId, tenant.organizationId), eq(metrics.slug, slug)))
+    .where(
+      and(
+        eq(metrics.organizationId, tenant.organizationId),
+        eq(metrics.slug, slug),
+        isNull(metrics.archivedAt),
+      ),
+    )
     .limit(1);
   if (!metric || !metric.currentPublishedVersion) notFound();
   const [version] = await db
@@ -76,7 +82,13 @@ export default async function MetricDetailPage({ params }: { params: Promise<{ s
           eq(metricVersions.status, "published"),
         ),
       )
-      .where(and(eq(metrics.organizationId, tenant.organizationId), ne(metrics.id, metric.id))),
+      .where(
+        and(
+          eq(metrics.organizationId, tenant.organizationId),
+          ne(metrics.id, metric.id),
+          isNull(metrics.archivedAt),
+        ),
+      ),
   ]);
   const components: MetricComponentOption[] = componentRows.map((component) => ({
     metricId: component.metricId,

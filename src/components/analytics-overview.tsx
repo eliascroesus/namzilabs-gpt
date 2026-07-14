@@ -1,5 +1,5 @@
-import { and, asc, count, desc, eq, gte, lt } from "drizzle-orm";
-import { AlertTriangle, Database, Gauge, Plus, Radio } from "lucide-react";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { Plus, Radio } from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -11,14 +11,11 @@ import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
 import {
   connectionResources,
-  connections,
   dashboardCards,
   dashboards,
-  deadLetterEvents,
   metrics,
   metricVersions,
   organizations,
-  sourceRecords,
 } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { parseMetricDefinition, type MetricDefinition } from "@/server/metrics/dsl";
@@ -59,17 +56,8 @@ function rowBucketKey(value: unknown, hourly: boolean): string {
   return date.toISOString().slice(0, hourly ? 13 : 10);
 }
 
-function rangeLabel(range: DatePreset): string {
-  if (range === "today") return "Today";
-  if (range === "yesterday") return "Yesterday";
-  if (range === "last_7_days") return "7-day";
-  if (range === "last_30_days") return "30-day";
-  if (range === "this_month") return "This-month";
-  return "This-quarter";
-}
-
 export async function AnalyticsOverview({
-  title = "Live overview",
+  title = "Analytics",
   range,
 }: {
   title?: string;
@@ -77,15 +65,7 @@ export async function AnalyticsOverview({
 }) {
   const tenant = await requireTenantContext();
   const db = getDb();
-  const [
-    [organization],
-    [dashboardRow],
-    connectionRows,
-    recordRows,
-    deadLetterRows,
-    metricRows,
-    resourceRows,
-  ] = await Promise.all([
+  const [[organization], [dashboardRow], metricRows, resourceRows] = await Promise.all([
     db
       .select({ timezone: organizations.timezone })
       .from(organizations)
@@ -97,32 +77,6 @@ export async function AnalyticsOverview({
       .where(eq(dashboards.organizationId, tenant.organizationId))
       .orderBy(desc(dashboards.updatedAt))
       .limit(1),
-    db
-      .select({
-        id: connections.id,
-        name: connections.name,
-        provider: connections.provider,
-        status: connections.status,
-        freshness: connections.freshness,
-        lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
-        lastErrorCode: connections.lastErrorCode,
-      })
-      .from(connections)
-      .where(eq(connections.organizationId, tenant.organizationId))
-      .orderBy(desc(connections.updatedAt)),
-    db
-      .select({ value: count() })
-      .from(sourceRecords)
-      .where(
-        and(
-          eq(sourceRecords.organizationId, tenant.organizationId),
-          eq(sourceRecords.isDeleted, false),
-        ),
-      ),
-    db
-      .select({ value: count() })
-      .from(deadLetterEvents)
-      .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
     db
       .select({
         id: metrics.id,
@@ -141,7 +95,7 @@ export async function AnalyticsOverview({
           eq(metricVersions.status, "published"),
         ),
       )
-      .where(eq(metrics.organizationId, tenant.organizationId))
+      .where(and(eq(metrics.organizationId, tenant.organizationId), isNull(metrics.archivedAt)))
       .orderBy(desc(metrics.updatedAt))
       .limit(40),
     db
@@ -162,37 +116,24 @@ export async function AnalyticsOverview({
       ? savedRange
       : "last_30_days");
   const window = dateRangeForPreset(effectiveRange, timezone);
-  const [activityRows, cardRows] = await Promise.all([
-    db
-      .select({ value: count() })
-      .from(sourceRecords)
-      .where(
-        and(
-          eq(sourceRecords.organizationId, tenant.organizationId),
-          eq(sourceRecords.isDeleted, false),
-          gte(sourceRecords.occurredAt, window.start),
-          lt(sourceRecords.occurredAt, window.end),
-        ),
-      ),
-    dashboardRow
-      ? db
-          .select({
-            metricVersionId: dashboardCards.metricVersionId,
-            cardType: dashboardCards.cardType,
-            title: dashboardCards.title,
-            position: dashboardCards.position,
-            configuration: dashboardCards.configuration,
-          })
-          .from(dashboardCards)
-          .where(
-            and(
-              eq(dashboardCards.organizationId, tenant.organizationId),
-              eq(dashboardCards.dashboardId, dashboardRow.id),
-            ),
-          )
-          .orderBy(asc(dashboardCards.position))
-      : Promise.resolve([]),
-  ]);
+  const cardRows = await (dashboardRow
+    ? db
+        .select({
+          metricVersionId: dashboardCards.metricVersionId,
+          cardType: dashboardCards.cardType,
+          title: dashboardCards.title,
+          position: dashboardCards.position,
+          configuration: dashboardCards.configuration,
+        })
+        .from(dashboardCards)
+        .where(
+          and(
+            eq(dashboardCards.organizationId, tenant.organizationId),
+            eq(dashboardCards.dashboardId, dashboardRow.id),
+          ),
+        )
+        .orderBy(asc(dashboardCards.position))
+    : Promise.resolve([]));
 
   const resourceConfiguration = new Map(
     resourceRows.map((resource) => [
@@ -274,13 +215,6 @@ export async function AnalyticsOverview({
     }),
   );
 
-  const activeConnections = connectionRows.filter((connection) => connection.status === "active");
-  const delayedConnections = connectionRows.filter(
-    (connection) => connection.status !== "active" || connection.freshness === "delayed",
-  );
-  const records = Number(recordRows[0]?.value ?? 0);
-  const activities = Number(activityRows[0]?.value ?? 0);
-  const deadLetters = Number(deadLetterRows[0]?.value ?? 0);
   const dashboardMetrics: DashboardMetric[] = evaluatedMetrics.map((metric) => ({
     id: metric.id,
     versionId: metric.versionId,
@@ -309,48 +243,15 @@ export async function AnalyticsOverview({
           </div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Your published metrics and data health, arranged around the decisions you make.
+            A focused view of the numbers that matter right now.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <RefreshAllButton />
-          <Link href="/integrations" className="secondary-link">
-            <Database size={15} /> Sources
-          </Link>
           <Link href="/metrics/new" className="primary-link">
             <Plus size={15} /> Build metric
           </Link>
         </div>
-      </div>
-
-      <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["Active sources", activeConnections.length, `${connectionRows.length} connected`, Gauge],
-          ["Unified records", records, "Available for metrics", Database],
-          [`${rangeLabel(effectiveRange)} records`, activities, "Available in this period", Radio],
-          [
-            "Pipeline issues",
-            deadLetters + delayedConnections.length,
-            "Need attention",
-            AlertTriangle,
-          ],
-        ].map(([label, value, detail, Icon]) => {
-          const TileIcon = Icon as typeof Gauge;
-          return (
-            <article className="summary-stat-card shell-card" key={String(label)}>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-[var(--muted)]">{String(label)}</p>
-                <span className="summary-stat-icon">
-                  <TileIcon size={15} />
-                </span>
-              </div>
-              <p className="mt-4 text-3xl font-semibold tracking-tight">
-                {Number(value).toLocaleString()}
-              </p>
-              <p className="mt-3 text-[11px] text-[var(--muted)]">{String(detail)}</p>
-            </article>
-          );
-        })}
       </div>
 
       <DashboardWorkspace

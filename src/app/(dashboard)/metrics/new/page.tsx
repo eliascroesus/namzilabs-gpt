@@ -4,7 +4,7 @@ import { getDb } from "@/db/client";
 import { connections, metrics, metricVersions } from "@/db/schema";
 import { env } from "@/lib/env";
 import { requireTenantContext } from "@/server/auth/tenant";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { parseMetricDefinition } from "@/server/metrics/dsl";
 
 export const metadata = { title: "Build metric" };
@@ -56,7 +56,7 @@ export default async function NewMetricPage({
             eq(metricVersions.status, "published"),
           ),
         )
-        .where(eq(metrics.organizationId, tenant.organizationId)),
+        .where(and(eq(metrics.organizationId, tenant.organizationId), isNull(metrics.archivedAt))),
     ]);
     rows = connectionRows;
     metricComponents = componentRows.map((component) => {

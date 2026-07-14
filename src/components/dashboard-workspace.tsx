@@ -127,6 +127,15 @@ export function DashboardWorkspace({
     return [metric];
   });
   const hiddenMetrics = metrics.filter((metric) => !metricOrder.includes(metric.id));
+  const primaryMetrics = visibleMetrics.slice(0, 4);
+  const additionalMetrics = visibleMetrics.slice(4);
+  const categoryGroups = categories.slice(1).flatMap((name) => {
+    const groupedMetrics = metricOrder.flatMap((id) => {
+      const metric = metrics.find((item) => item.id === id && item.category === name);
+      return metric ? [metric] : [];
+    });
+    return groupedMetrics.length ? [{ name, metrics: groupedMetrics }] : [];
+  });
 
   function changed() {
     setDirty(true);
@@ -241,6 +250,94 @@ export function DashboardWorkspace({
     }
   }
 
+  function renderMetricCard(metric: DashboardMetric) {
+    const change = metric.changePercent;
+    const positive = typeof change === "number" && change >= 0;
+    const index = metricOrder.indexOf(metric.id);
+    const card = (
+      <article
+        className={`dashboard-metric-card ${customizing ? "dashboard-metric-card-editing" : ""}`}
+        draggable={customizing}
+        onDragStart={() => setDraggingId(metric.id)}
+        onDragOver={(event) => customizing && event.preventDefault()}
+        onDrop={() => dropMetric(metric.id)}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-[var(--muted)]">{metric.name}</p>
+            <span className="mt-2 inline-flex text-[10px] font-semibold text-[var(--accent)]">
+              {metric.category}
+            </span>
+          </div>
+          {customizing ? (
+            <div className="metric-card-controls">
+              <GripVertical size={15} aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => moveMetric(metric.id, -1)}
+                disabled={index === 0}
+                aria-label={`Move ${metric.name} left`}
+              >
+                <ArrowLeft size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => moveMetric(metric.id, 1)}
+                disabled={index === metricOrder.length - 1}
+                aria-label={`Move ${metric.name} right`}
+              >
+                <ArrowRight size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMetricOrder((current) => current.filter((id) => id !== metric.id));
+                  changed();
+                }}
+                aria-label={`Hide ${metric.name}`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <span
+              className={`status-dot ${metric.error ? "bg-[var(--danger)]" : "bg-[var(--success)]"}`}
+            />
+          )}
+        </div>
+        <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+          {metric.error ? "—" : formatMetricValue(metric.value, metric.percentage)}
+        </p>
+        <div className="mt-3 flex items-center justify-between gap-3 text-[10px]">
+          {typeof change === "number" ? (
+            <span
+              className={`inline-flex items-center gap-1 font-semibold ${positive ? "text-[var(--success)]" : "text-[var(--danger)]"}`}
+            >
+              {positive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+              {positive ? "+" : ""}
+              {change.toFixed(1)}%
+            </span>
+          ) : (
+            <span className="text-[var(--muted)]">No prior comparison</span>
+          )}
+          <span className="text-[var(--muted)]">{metric.matchingCount.toLocaleString()} rows</span>
+        </div>
+        {customizing ? (
+          <div className="mt-3 flex items-center gap-1 text-[10px] text-[var(--muted)]">
+            <Eye size={12} /> Drag to move · <EyeOff size={12} /> hide with ×
+          </div>
+        ) : null}
+      </article>
+    );
+    return customizing ? (
+      <div key={metric.id}>{card}</div>
+    ) : (
+      <Link key={metric.id} href={`/metrics/${metric.slug}`}>
+        {card}
+      </Link>
+    );
+  }
+
   return (
     <>
       <section className="dashboard-toolbar mt-7">
@@ -339,149 +436,134 @@ export function DashboardWorkspace({
         </section>
       ) : null}
 
-      <section className="mt-7">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold">Live metrics</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Every card uses the selected reporting window and its prior-period comparison.
-            </p>
-          </div>
-          <div className="category-filter" aria-label="Metric categories">
-            {categories.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={category === item ? "active" : ""}
-                onClick={() => setCategory(item)}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {visibleMetrics.length ? (
-          <div className="dashboard-metric-grid mt-3">
-            {visibleMetrics.map((metric) => {
-              const change = metric.changePercent;
-              const positive = typeof change === "number" && change >= 0;
-              const index = metricOrder.indexOf(metric.id);
-              const card = (
-                <article
-                  className={`dashboard-metric-card shell-card ${customizing ? "dashboard-metric-card-editing" : ""}`}
-                  draggable={customizing}
-                  onDragStart={() => setDraggingId(metric.id)}
-                  onDragOver={(event) => customizing && event.preventDefault()}
-                  onDrop={() => dropMetric(metric.id)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="metric-category-badge">{metric.category}</span>
-                      <p className="mt-2 truncate text-sm font-semibold text-[var(--foreground)]">
-                        {metric.name}
-                      </p>
-                    </div>
-                    {customizing ? (
-                      <div className="metric-card-controls">
-                        <GripVertical size={15} aria-hidden="true" />
-                        <button
-                          type="button"
-                          onClick={() => moveMetric(metric.id, -1)}
-                          disabled={index === 0}
-                          aria-label={`Move ${metric.name} left`}
-                        >
-                          <ArrowLeft size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveMetric(metric.id, 1)}
-                          disabled={index === metricOrder.length - 1}
-                          aria-label={`Move ${metric.name} right`}
-                        >
-                          <ArrowRight size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMetricOrder((current) => current.filter((id) => id !== metric.id));
-                            changed();
-                          }}
-                          aria-label={`Hide ${metric.name}`}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <span
-                        className={`status-dot ${metric.error ? "bg-[var(--danger)]" : "bg-[var(--success)]"}`}
-                      />
-                    )}
-                  </div>
-                  <p className="mt-5 text-4xl font-semibold tracking-[-0.04em]">
-                    {metric.error ? "—" : formatMetricValue(metric.value, metric.percentage)}
+      {metrics.length ? (
+        <>
+          <section
+            className={`dashboard-overview-grid mt-5 ${showTrend ? "" : "dashboard-overview-grid-single"}`}
+          >
+            <MetricVisualizations
+              metrics={metrics}
+              configuration={visualization}
+              onConfigurationChange={updateVisualization}
+              showTrend={showTrend}
+              showPie={false}
+              editable={customizing}
+            />
+            <aside className="dashboard-kpi-panel shell-card">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2 className="text-sm font-semibold">Key metrics</h2>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Compared with the previous period
                   </p>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-[11px]">
-                    {typeof change === "number" ? (
-                      <span
-                        className={`inline-flex items-center gap-1 font-semibold ${positive ? "text-[var(--success)]" : "text-[var(--danger)]"}`}
-                      >
-                        {positive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                        {positive ? "+" : ""}
-                        {change.toFixed(1)}%
-                      </span>
-                    ) : (
-                      <span className="text-[var(--muted)]">No prior comparison</span>
-                    )}
-                    <span className="text-[var(--muted)]">
-                      {metric.matchingCount.toLocaleString()} rows
-                    </span>
-                  </div>
-                  {customizing ? (
-                    <div className="mt-4 flex items-center gap-1 text-[10px] text-[var(--muted)]">
-                      <Eye size={12} /> Drag to move · <EyeOff size={12} /> hide with ×
-                    </div>
-                  ) : null}
-                </article>
-              );
-              return customizing ? (
-                <div key={metric.id}>{card}</div>
+                </div>
+                <select
+                  className="dashboard-category-select"
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  aria-label="Metric category"
+                >
+                  {categories.map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              {primaryMetrics.length ? (
+                <div className="dashboard-kpi-grid">{primaryMetrics.map(renderMetricCard)}</div>
               ) : (
-                <Link key={metric.id} href={`/metrics/${metric.slug}`}>
-                  {card}
-                </Link>
-              );
-            })}
-          </div>
-        ) : metrics.length ? (
-          <div className="shell-card mt-3 px-6 py-10 text-center">
-            <EyeOff size={22} className="mx-auto text-[var(--muted)]" />
-            <p className="mt-3 text-sm font-semibold">No visible metrics in this category</p>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Choose another category or customize the dashboard to restore cards.
-            </p>
-          </div>
-        ) : (
-          <div className="shell-card mt-3 px-6 py-12 text-center">
-            <LayoutDashboard size={24} className="mx-auto text-[var(--muted)]" />
-            <h3 className="mt-4 font-semibold">Build your first dashboard metric</h3>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Connect a source, build a metric, and it will be ready to arrange here.
-            </p>
-            <Link href="/metrics/new" className="primary-link mt-5">
-              Build metric <ArrowRight size={14} />
-            </Link>
-          </div>
-        )}
-      </section>
+                <div className="grid min-h-64 place-items-center px-6 text-center">
+                  <div>
+                    <EyeOff size={20} className="mx-auto text-[var(--muted)]" />
+                    <p className="mt-3 text-sm font-semibold">No metrics in this view</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Choose another category or restore a hidden metric.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </aside>
+          </section>
 
-      <MetricVisualizations
-        metrics={metrics}
-        configuration={visualization}
-        onConfigurationChange={updateVisualization}
-        showTrend={showTrend}
-        showPie={showPie}
-      />
+          {additionalMetrics.length ? (
+            <section className="dashboard-extra-metrics mt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold">More metrics</h2>
+                <span className="text-[11px] text-[var(--muted)]">
+                  {additionalMetrics.length} additional
+                </span>
+              </div>
+              <div className="dashboard-metric-grid">{additionalMetrics.map(renderMetricCard)}</div>
+            </section>
+          ) : null}
+
+          <section
+            className={`dashboard-lower-grid mt-4 ${showPie ? "" : "dashboard-lower-grid-single"}`}
+          >
+            <article className="dashboard-category-panel shell-card">
+              <div className="dashboard-panel-heading">
+                <div>
+                  <h2 className="text-sm font-semibold">Metric groups</h2>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    A compact view of your categories
+                  </p>
+                </div>
+                <Link href="/metrics" className="text-xs font-semibold text-[var(--accent)]">
+                  Manage metrics
+                </Link>
+              </div>
+              <div className="dashboard-category-grid">
+                {categoryGroups.map((group, groupIndex) => (
+                  <div className="dashboard-category-group" key={group.name}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="dashboard-category-dot"
+                        style={{ background: `var(--chart-series-${(groupIndex % 4) + 1})` }}
+                      />
+                      <p className="text-xs font-semibold">{group.name}</p>
+                      <span className="ml-auto text-[10px] text-[var(--muted)]">
+                        {group.metrics.length}
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {group.metrics.slice(0, 3).map((metric) => (
+                        <div className="flex items-center justify-between gap-3" key={metric.id}>
+                          <span className="truncate text-[11px] text-[var(--muted)]">
+                            {metric.name}
+                          </span>
+                          <strong className="text-sm">
+                            {formatMetricValue(metric.value, metric.percentage)}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+            {showPie ? (
+              <MetricVisualizations
+                metrics={metrics}
+                configuration={visualization}
+                onConfigurationChange={updateVisualization}
+                showTrend={false}
+                showPie
+                editable={customizing}
+              />
+            ) : null}
+          </section>
+        </>
+      ) : (
+        <div className="shell-card mt-5 px-6 py-12 text-center">
+          <LayoutDashboard size={24} className="mx-auto text-[var(--muted)]" />
+          <h3 className="mt-4 font-semibold">Build your first dashboard metric</h3>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Connect a source, build a metric, and it will appear here.
+          </p>
+          <Link href="/metrics/new" className="primary-link mt-5">
+            Build metric <ArrowRight size={14} />
+          </Link>
+        </div>
+      )}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const rows = await getDb()
       .select()
       .from(metrics)
-      .where(eq(metrics.organizationId, tenant.organizationId))
+      .where(and(eq(metrics.organizationId, tenant.organizationId), isNull(metrics.archivedAt)))
       .orderBy(desc(metrics.updatedAt));
     return Response.json(
       { data: rows, requestId },

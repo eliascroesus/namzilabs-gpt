@@ -238,12 +238,14 @@ export function MetricVisualizations({
   onConfigurationChange,
   showTrend = true,
   showPie = true,
+  editable = false,
 }: {
   metrics: MetricVisualization[];
   configuration: VisualizationConfiguration;
   onConfigurationChange: (configuration: VisualizationConfiguration) => void;
   showTrend?: boolean;
   showPie?: boolean;
+  editable?: boolean;
 }) {
   const trendMetrics = useMemo(() => metrics.filter((metric) => metric.trendEligible), [metrics]);
   const pieMetrics = useMemo(
@@ -264,6 +266,7 @@ export function MetricVisualizations({
   const effectivePie = selectedPie.length
     ? selectedPie
     : pieMetrics.filter((metric) => metric.preferred === "pie").slice(0, 6);
+  const listedPieMetrics = editable ? pieMetrics : effectivePie;
   const pieTotal = effectivePie.reduce((total, metric) => total + (metric.value ?? 0), 0);
   let pieCursor = 0;
   const pieGradient = effectivePie.length
@@ -291,7 +294,7 @@ export function MetricVisualizations({
 
   return (
     <section
-      className={`mt-5 grid gap-4 ${showTrend && showPie ? "xl:grid-cols-[minmax(0,1.6fr)_minmax(340px,.75fr)]" : "grid-cols-1"}`}
+      className={`metric-visualization-grid ${showTrend && showPie ? "xl:grid-cols-[minmax(0,1.6fr)_minmax(340px,.75fr)]" : "grid-cols-1"}`}
     >
       {showTrend ? (
         <article className="shell-card overflow-hidden p-5">
@@ -302,7 +305,7 @@ export function MetricVisualizations({
                 <h2 className="text-base font-semibold">Metric trend</h2>
               </div>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Hover any point for its exact value. Ratios are excluded from time-series views.
+                Hover any point for the exact value.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -381,7 +384,7 @@ export function MetricVisualizations({
             <h2 className="text-base font-semibold">Metric mix</h2>
           </div>
           <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-            Compare up to six number-based metrics. Percentages and ratios are excluded.
+            Number-based metrics only. Ratios stay out of this comparison.
           </p>
           <div className="mt-5 grid place-items-center">
             <div className="metric-donut" style={{ background: pieGradient }}>
@@ -392,22 +395,25 @@ export function MetricVisualizations({
             </div>
           </div>
           <div className="mt-5 max-h-64 space-y-2 overflow-y-auto pr-1">
-            {pieMetrics.length ? (
-              pieMetrics.map((metric) => {
+            {listedPieMetrics.length ? (
+              listedPieMetrics.map((metric) => {
                 const selectedIndex = effectivePie.findIndex((item) => item.id === metric.id);
                 const checked = selectedIndex >= 0;
                 const share = pieTotal && checked ? ((metric.value ?? 0) / pieTotal) * 100 : 0;
                 return (
-                  <label
+                  <div
                     key={metric.id}
                     className={`pie-metric-row ${checked ? "pie-metric-row-active" : ""}`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => togglePie(metric.id)}
-                      disabled={!checked && effectivePie.length >= 6}
-                    />
+                    {editable ? (
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePie(metric.id)}
+                        disabled={!checked && effectivePie.length >= 6}
+                        aria-label={`Include ${metric.name} in metric mix`}
+                      />
+                    ) : null}
                     <span
                       className="size-2.5 rounded-full"
                       style={{
@@ -430,7 +436,7 @@ export function MetricVisualizations({
                         </small>
                       ) : null}
                     </span>
-                  </label>
+                  </div>
                 );
               })
             ) : (
