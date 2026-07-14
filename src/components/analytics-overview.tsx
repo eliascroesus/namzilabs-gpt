@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import { Plus, Radio } from "lucide-react";
 import Link from "next/link";
 
@@ -76,7 +76,15 @@ export async function AnalyticsOverview({
 }) {
   const tenant = await requireTenantContext();
   const db = getDb();
-  const [[organization], [dashboardRow], metricRows, resourceRows] = await Promise.all([
+  const [
+    [organization],
+    [dashboardRow],
+    connectionRows,
+    recordRows,
+    deadLetterRows,
+    metricRows,
+    resourceRows,
+  ] = await Promise.all([
     db
       .select({ timezone: organizations.timezone })
       .from(organizations)
@@ -88,6 +96,26 @@ export async function AnalyticsOverview({
       .where(eq(dashboards.organizationId, tenant.organizationId))
       .orderBy(desc(dashboards.updatedAt))
       .limit(1),
+    db
+      .select({
+        status: connections.status,
+        freshness: connections.freshness,
+      })
+      .from(connections)
+      .where(eq(connections.organizationId, tenant.organizationId)),
+    db
+      .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+        ),
+      ),
+    db
+      .select({ value: count() })
+      .from(deadLetterEvents)
+      .where(eq(deadLetterEvents.organizationId, tenant.organizationId)),
     db
       .select({
         id: metrics.id,
@@ -127,7 +155,18 @@ export async function AnalyticsOverview({
       ? savedRange
       : "last_30_days");
   const window = dateRangeForPreset(effectiveRange, timezone);
-  const [cardRows, [operationalSummary]] = await Promise.all([
+  const [activityRows, cardRows] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+          gte(sourceRecords.occurredAt, window.start),
+          lt(sourceRecords.occurredAt, window.end),
+        ),
+      ),
     dashboardRow
       ? db
           .select({
@@ -146,44 +185,15 @@ export async function AnalyticsOverview({
           )
           .orderBy(asc(dashboardCards.position))
       : Promise.resolve([]),
-    db
-      .select({
-        activeSources: sql<number>`(
-          select count(*)::int from ${connections}
-          where ${connections.organizationId} = ${tenant.organizationId}
-            and ${connections.status} = 'active'
-        )`,
-        connectedSources: sql<number>`(
-          select count(*)::int from ${connections}
-          where ${connections.organizationId} = ${tenant.organizationId}
-        )`,
-        unifiedRecords: sql<number>`(
-          select count(*)::int from ${sourceRecords}
-          where ${sourceRecords.organizationId} = ${tenant.organizationId}
-            and ${sourceRecords.isDeleted} = false
-        )`,
-        periodRecords: sql<number>`(
-          select count(*)::int from ${sourceRecords}
-          where ${sourceRecords.organizationId} = ${tenant.organizationId}
-            and ${sourceRecords.isDeleted} = false
-            and ${sourceRecords.occurredAt} >= ${window.start.toISOString()}
-            and ${sourceRecords.occurredAt} < ${window.end.toISOString()}
-        )`,
-        pipelineIssues: sql<number>`(
-          (
-            select count(*)::int from ${connections}
-            where ${connections.organizationId} = ${tenant.organizationId}
-              and (${connections.status} <> 'active' or ${connections.freshness} = 'delayed')
-          ) + (
-            select count(*)::int from ${deadLetterEvents}
-            where ${deadLetterEvents.organizationId} = ${tenant.organizationId}
-          )
-        )`,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, tenant.organizationId))
-      .limit(1),
   ]);
+
+  const activeConnections = connectionRows.filter((connection) => connection.status === "active");
+  const delayedConnections = connectionRows.filter(
+    (connection) => connection.status !== "active" || connection.freshness === "delayed",
+  );
+  const recordCount = Number(recordRows[0]?.value ?? 0);
+  const activityCount = Number(activityRows[0]?.value ?? 0);
+  const deadLetterCount = Number(deadLetterRows[0]?.value ?? 0);
 
   const resourceConfiguration = new Map(
     resourceRows.map((resource) => [
@@ -305,11 +315,11 @@ export async function AnalyticsOverview({
       </div>
 
       <DashboardDataCards
-        activeSources={operationalSummary?.activeSources ?? 0}
-        connectedSources={operationalSummary?.connectedSources ?? 0}
-        unifiedRecords={operationalSummary?.unifiedRecords ?? 0}
-        periodRecords={operationalSummary?.periodRecords ?? 0}
-        pipelineIssues={operationalSummary?.pipelineIssues ?? 0}
+        activeSources={activeConnections.length}
+        connectedSources={connectionRows.length}
+        unifiedRecords={recordCount}
+        periodRecords={activityCount}
+        pipelineIssues={deadLetterCount + delayedConnections.length}
         periodLabel={rangeLabel(effectiveRange)}
       />
 
