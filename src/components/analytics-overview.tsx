@@ -166,8 +166,8 @@ export async function AnalyticsOverview({
           select count(*)::int from ${sourceRecords}
           where ${sourceRecords.organizationId} = ${tenant.organizationId}
             and ${sourceRecords.isDeleted} = false
-            and ${sourceRecords.occurredAt} >= ${window.start.toISOString()}
-            and ${sourceRecords.occurredAt} < ${window.end.toISOString()}
+            and ${sourceRecords.occurredAt} >= ${window.start}
+            and ${sourceRecords.occurredAt} < ${window.end}
         )`,
         pipelineIssues: sql<number>`(
           (
