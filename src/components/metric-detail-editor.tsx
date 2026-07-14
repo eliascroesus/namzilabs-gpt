@@ -290,7 +290,11 @@ export function MetricDetailEditor({
   );
   const [filters, setFilters] = useState(() => simpleFilters(definition.filters));
   const [visualization, setVisualization] = useState(definition.visualization.display);
-  const [visualizationColor, setVisualizationColor] = useState(definition.visualization.color);
+  const [visualizationColor, setVisualizationColor] = useState(
+    ["#ff7417", "#f5741c"].includes(definition.visualization.color.toLowerCase())
+      ? "#8b5cf6"
+      : definition.visualization.color,
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);

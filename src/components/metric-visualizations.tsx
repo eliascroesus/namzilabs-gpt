@@ -29,7 +29,7 @@ export type VisualizationConfiguration = {
   pieMetricIds: string[];
 };
 
-const piePalette = ["#ff7417", "#ff9b52", "#d9560b", "#16a37a", "#d7a641", "#8f8881"];
+const piePalette = ["#8b5cf6", "#a78bfa", "#6d4aff", "#60a5fa", "#14b8a6", "#8f9094"];
 
 function formatValue(value: number | null, percentage = false): string {
   if (value === null) return "—";
@@ -57,8 +57,10 @@ function TrendGraphic({
   color: string;
   metricName: string;
 }) {
-  const chartColor = ["#8b5cf6", "#8b7cff", "#7c3aed", "#6f5cff"].includes(color.toLowerCase())
-    ? "#f5741c"
+  const chartColor = ["#8b5cf6", "#8b7cff", "#7c3aed", "#6f5cff", "#f5741c", "#ff7417"].includes(
+    color.toLowerCase(),
+  )
+    ? "#8b5cf6"
     : color;
   const gradientId = `metric-trend-fill-${chartColor.replace("#", "")}`;
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -107,7 +109,7 @@ function TrendGraphic({
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={allEstimated ? "#d97706" : chartColor} stopOpacity="0.2" />
+            <stop offset="0%" stopColor={allEstimated ? "#60a5fa" : chartColor} stopOpacity="0.2" />
             <stop offset="100%" stopColor={chartColor} stopOpacity="0" />
           </linearGradient>
         </defs>
@@ -131,7 +133,7 @@ function TrendGraphic({
             <polyline
               points={polyline}
               fill="none"
-              stroke={allEstimated ? "#d97706" : chartColor}
+              stroke={allEstimated ? "#60a5fa" : chartColor}
               strokeWidth="3"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -150,7 +152,7 @@ function TrendGraphic({
                 width={barWidth}
                 height={Math.max(1, baseline - point.y)}
                 rx="2"
-                fill={item?.estimated ? "#d97706" : chartColor}
+                fill={item?.estimated ? "#60a5fa" : chartColor}
                 opacity={item?.value ? 0.86 : 0.16}
               />
             );
@@ -163,7 +165,7 @@ function TrendGraphic({
                 cx={point.x}
                 cy={point.y}
                 r={points[index]?.estimated ? 4 : 3}
-                fill={points[index]?.estimated ? "#f59e0b" : chartColor}
+                fill={points[index]?.estimated ? "#60a5fa" : chartColor}
                 stroke="var(--card)"
                 strokeWidth="2"
                 opacity={hoveredIndex === index ? 1 : 0.75}
@@ -203,7 +205,7 @@ function TrendGraphic({
               x2={hoveredCoordinate.x}
               y1={paddingTop}
               y2={paddingTop + usableHeight}
-              stroke={hoveredPoint.estimated ? "#d97706" : chartColor}
+              stroke={hoveredPoint.estimated ? "#60a5fa" : chartColor}
               strokeDasharray="3 4"
               opacity="0.65"
             />
@@ -223,7 +225,7 @@ function TrendGraphic({
               {metricName}: {formatValue(hoveredPoint.value)}
             </text>
             {hoveredPoint.estimated ? (
-              <text x={tooltipX + 12} y="57" fill="#f59e0b" fontSize="9" fontWeight="700">
+              <text x={tooltipX + 12} y="57" fill="#60a5fa" fontSize="9" fontWeight="700">
                 ESTIMATED TIMESTAMP
               </text>
             ) : null}
@@ -360,7 +362,7 @@ export function MetricVisualizations({
               </div>
               {selectedTrend.points.some((point) => point.estimated) ? (
                 <div className="estimated-time-note mt-4">
-                  <Clock3 size={13} /> Dashed amber data uses sync time because no reliable source
+                  <Clock3 size={13} /> Dashed blue data uses sync time because no reliable source
                   timestamp was selected.
                 </div>
               ) : null}

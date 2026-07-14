@@ -44,8 +44,8 @@ export function DataTrendChart({ points }: { points: TrendPoint[] }) {
         >
           <defs>
             <linearGradient id="namzi-trend-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ff7417" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="#ff7417" stopOpacity="0" />
+              <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
             </linearGradient>
           </defs>
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
