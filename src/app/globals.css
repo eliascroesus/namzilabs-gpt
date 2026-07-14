@@ -1038,6 +1038,11 @@ select:focus-visible {
   overflow: hidden;
   padding: 1.15rem;
 }
+.dashboard-data-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
 .summary-stat-icon {
   display: grid;
   width: 30px;
@@ -1372,8 +1377,17 @@ a:hover > .dashboard-metric-card {
 }
 
 @media (max-width: 1120px) {
+  .dashboard-data-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .dashboard-overview-grid,
   .dashboard-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .dashboard-data-card-grid {
     grid-template-columns: 1fr;
   }
 }

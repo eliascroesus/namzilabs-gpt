@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { Plus, Radio } from "lucide-react";
 import Link from "next/link";
 
+import { DashboardDataCards } from "@/components/dashboard-data-cards";
 import {
   DashboardWorkspace,
   type DashboardMetric,
@@ -11,11 +12,14 @@ import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
 import {
   connectionResources,
+  connections,
   dashboardCards,
   dashboards,
+  deadLetterEvents,
   metrics,
   metricVersions,
   organizations,
+  sourceRecords,
 } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { parseMetricDefinition, type MetricDefinition } from "@/server/metrics/dsl";
@@ -54,6 +58,13 @@ function rowBucketKey(value: unknown, hourly: boolean): string {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return String(value).slice(0, hourly ? 13 : 10);
   return date.toISOString().slice(0, hourly ? 13 : 10);
+}
+
+function rangeLabel(range: DatePreset): string {
+  if (range === "today") return "Today’s";
+  if (range === "yesterday") return "Yesterday’s";
+  if (range === "last_7_days") return "7-day";
+  return "30-day";
 }
 
 export async function AnalyticsOverview({
@@ -116,24 +127,63 @@ export async function AnalyticsOverview({
       ? savedRange
       : "last_30_days");
   const window = dateRangeForPreset(effectiveRange, timezone);
-  const cardRows = await (dashboardRow
-    ? db
-        .select({
-          metricVersionId: dashboardCards.metricVersionId,
-          cardType: dashboardCards.cardType,
-          title: dashboardCards.title,
-          position: dashboardCards.position,
-          configuration: dashboardCards.configuration,
-        })
-        .from(dashboardCards)
-        .where(
-          and(
-            eq(dashboardCards.organizationId, tenant.organizationId),
-            eq(dashboardCards.dashboardId, dashboardRow.id),
-          ),
-        )
-        .orderBy(asc(dashboardCards.position))
-    : Promise.resolve([]));
+  const [cardRows, [operationalSummary]] = await Promise.all([
+    dashboardRow
+      ? db
+          .select({
+            metricVersionId: dashboardCards.metricVersionId,
+            cardType: dashboardCards.cardType,
+            title: dashboardCards.title,
+            position: dashboardCards.position,
+            configuration: dashboardCards.configuration,
+          })
+          .from(dashboardCards)
+          .where(
+            and(
+              eq(dashboardCards.organizationId, tenant.organizationId),
+              eq(dashboardCards.dashboardId, dashboardRow.id),
+            ),
+          )
+          .orderBy(asc(dashboardCards.position))
+      : Promise.resolve([]),
+    db
+      .select({
+        activeSources: sql<number>`(
+          select count(*)::int from ${connections}
+          where ${connections.organizationId} = ${tenant.organizationId}
+            and ${connections.status} = 'active'
+        )`,
+        connectedSources: sql<number>`(
+          select count(*)::int from ${connections}
+          where ${connections.organizationId} = ${tenant.organizationId}
+        )`,
+        unifiedRecords: sql<number>`(
+          select count(*)::int from ${sourceRecords}
+          where ${sourceRecords.organizationId} = ${tenant.organizationId}
+            and ${sourceRecords.isDeleted} = false
+        )`,
+        periodRecords: sql<number>`(
+          select count(*)::int from ${sourceRecords}
+          where ${sourceRecords.organizationId} = ${tenant.organizationId}
+            and ${sourceRecords.isDeleted} = false
+            and ${sourceRecords.occurredAt} >= ${window.start}
+            and ${sourceRecords.occurredAt} < ${window.end}
+        )`,
+        pipelineIssues: sql<number>`(
+          (
+            select count(*)::int from ${connections}
+            where ${connections.organizationId} = ${tenant.organizationId}
+              and (${connections.status} <> 'active' or ${connections.freshness} = 'delayed')
+          ) + (
+            select count(*)::int from ${deadLetterEvents}
+            where ${deadLetterEvents.organizationId} = ${tenant.organizationId}
+          )
+        )`,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, tenant.organizationId))
+      .limit(1),
+  ]);
 
   const resourceConfiguration = new Map(
     resourceRows.map((resource) => [
@@ -253,6 +303,15 @@ export async function AnalyticsOverview({
           </Link>
         </div>
       </div>
+
+      <DashboardDataCards
+        activeSources={operationalSummary?.activeSources ?? 0}
+        connectedSources={operationalSummary?.connectedSources ?? 0}
+        unifiedRecords={operationalSummary?.unifiedRecords ?? 0}
+        periodRecords={operationalSummary?.periodRecords ?? 0}
+        pipelineIssues={operationalSummary?.pipelineIssues ?? 0}
+        periodLabel={rangeLabel(effectiveRange)}
+      />
 
       <DashboardWorkspace
         metrics={dashboardMetrics}
