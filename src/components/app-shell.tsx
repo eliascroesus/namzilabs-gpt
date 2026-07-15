@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
 import { AppThemeProvider } from "@/components/app-theme";
+import { getProviderPresentation } from "@/lib/provider-presentation";
 
 const navigation = [
   { label: "Overview", href: "/overview", icon: Gauge },
@@ -24,15 +25,35 @@ const navigation = [
   { label: "Integrations", href: "/integrations", icon: Blocks },
 ];
 
-export function AppShell({ children }: { children: ReactNode }) {
+export type AppShellSource = {
+  id: string;
+  provider: string;
+  name: string;
+  status: string;
+  freshness: string;
+};
+
+export function AppShell({
+  children,
+  sources = [],
+}: {
+  children: ReactNode;
+  sources?: AppShellSource[];
+}) {
   return (
     <AppThemeProvider>
-      <AppShellContent>{children}</AppShellContent>
+      <AppShellContent sources={sources}>{children}</AppShellContent>
     </AppThemeProvider>
   );
 }
 
-function AppShellContent({ children }: { children: ReactNode }) {
+function AppShellContent({
+  children,
+  sources,
+}: {
+  children: ReactNode;
+  sources: AppShellSource[];
+}) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
@@ -78,6 +99,38 @@ function AppShellContent({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
+        {sources.length ? (
+          <div className="app-sidebar-sources">
+            <p className="app-nav-section">Sources</p>
+            <div className="app-source-list">
+              {sources.map((source) => {
+                const provider = getProviderPresentation(source.provider);
+                const healthy = source.status === "active" && source.freshness !== "delayed";
+                return (
+                  <Link
+                    key={source.id}
+                    href={`/integrations/${source.id}`}
+                    className="app-source-link"
+                    title={`${provider.label}: ${source.name}`}
+                  >
+                    <span
+                      className="app-source-mark"
+                      style={{ color: provider.color, borderColor: `${provider.color}55` }}
+                    >
+                      {provider.shortLabel}
+                    </span>
+                    <span className="app-source-name">{provider.label}</span>
+                    <span
+                      className={`app-source-status ${healthy ? "healthy" : "attention"}`}
+                      style={{ backgroundColor: healthy ? provider.color : undefined }}
+                      aria-label={healthy ? "Connected" : "Needs attention"}
+                    />
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <div className="sidebar-bottom-navigation">
           <p className="app-nav-section">Account</p>
           <Link href="/terms" className="app-nav-link" title="Help" data-label="Help">

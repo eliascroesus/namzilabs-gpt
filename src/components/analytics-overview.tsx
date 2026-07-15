@@ -9,6 +9,10 @@ import {
   type MetricCardDashboard,
 } from "@/components/dashboard-metric-cards";
 import { DashboardRangeSelector } from "@/components/dashboard-range-selector";
+import {
+  DashboardSourceCards,
+  type DashboardSourceCardData,
+} from "@/components/dashboard-source-cards";
 import { RefreshAllButton } from "@/components/refresh-all-button";
 import { getDb } from "@/db/client";
 import {
@@ -49,21 +53,26 @@ function sourceLabel(definition: MetricDefinition): string {
   );
 }
 
-function wallClockKey(date: Date, timezone: string): string {
+function wallClockKey(date: Date, timezone: string, grain: "hour" | "day"): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+  const day = `${values.year}-${values.month}-${values.day}`;
+  return grain === "hour" ? `${day}T${values.hour}` : day;
 }
 
-function rowBucketKey(value: unknown): string {
+function rowBucketKey(value: unknown, grain: "hour" | "day"): string {
+  const raw = String(value).replace(" ", "T");
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, grain === "hour" ? 13 : 10);
   const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-  return date.toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, grain === "hour" ? 13 : 10);
+  return date.toISOString().slice(0, grain === "hour" ? 13 : 10);
 }
 
 export async function AnalyticsOverview({
@@ -96,7 +105,14 @@ export async function AnalyticsOverview({
       .orderBy(desc(dashboards.updatedAt))
       .limit(1),
     db
-      .select({ status: connections.status, freshness: connections.freshness })
+      .select({
+        id: connections.id,
+        provider: connections.provider,
+        name: connections.name,
+        status: connections.status,
+        freshness: connections.freshness,
+        lastSuccessfulSyncAt: connections.lastSuccessfulSyncAt,
+      })
       .from(connections)
       .where(eq(connections.organizationId, tenant.organizationId)),
     db
@@ -143,8 +159,14 @@ export async function AnalyticsOverview({
   const effectiveRange = range ?? "last_30_days";
   const timezone = organization?.timezone ?? "UTC";
   const window = dateRangeForPreset(effectiveRange, timezone);
-  const seriesWindow = dateRangeForPreset("last_30_days", timezone);
-  const [activityRows, cardRows] = await Promise.all([
+  const seriesGrain: "hour" | "day" =
+    effectiveRange === "today" || effectiveRange === "yesterday" ? "hour" : "day";
+  const seriesStepMs = seriesGrain === "hour" ? 3_600_000 : 86_400_000;
+  const seriesPointCount = Math.max(
+    1,
+    Math.ceil((window.end.getTime() - window.start.getTime()) / seriesStepMs),
+  );
+  const [activityRows, sourceCountRows, periodSourceCountRows, cardRows] = await Promise.all([
     db
       .select({ value: count() })
       .from(sourceRecords)
@@ -156,6 +178,28 @@ export async function AnalyticsOverview({
           lt(sourceRecords.occurredAt, window.end),
         ),
       ),
+    db
+      .select({ connectionId: sourceRecords.connectionId, value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+        ),
+      )
+      .groupBy(sourceRecords.connectionId),
+    db
+      .select({ connectionId: sourceRecords.connectionId, value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+          gte(sourceRecords.occurredAt, window.start),
+          lt(sourceRecords.occurredAt, window.end),
+        ),
+      )
+      .groupBy(sourceRecords.connectionId),
     dashboardRow
       ? db
           .select({
@@ -210,23 +254,23 @@ export async function AnalyticsOverview({
                 {
                   ...definition,
                   timeField: definition.timeField ?? "occurred_at",
-                  timeGrain: "day",
+                  timeGrain: seriesGrain,
                   groupBy: [],
                   comparison: "none",
                 },
                 tenant.organizationId,
-                { ...seriesWindow, timezone },
+                { ...window, timezone },
               )
             : Promise.resolve([]),
         ]);
         const seriesValues = new Map(
-          series.map((row) => [rowBucketKey(row.time_bucket), Number(row.value ?? 0)]),
+          series.map((row) => [rowBucketKey(row.time_bucket, seriesGrain), Number(row.value ?? 0)]),
         );
-        const points = Array.from({ length: 30 }, (_, index) => {
-          const instant = new Date(seriesWindow.start.getTime() + index * 86_400_000);
-          const key = wallClockKey(instant, timezone);
+        const points = Array.from({ length: seriesPointCount }, (_, index) => {
+          const instant = new Date(window.start.getTime() + index * seriesStepMs);
+          const key = wallClockKey(instant, timezone, seriesGrain);
           return {
-            date: `${key}T00:00:00Z`,
+            date: instant.toISOString(),
             value: seriesValues.get(key) ?? 0,
             estimated: false,
           };
@@ -270,6 +314,15 @@ export async function AnalyticsOverview({
   const savedDashboard: MetricCardDashboard = dashboardRow
     ? { ...dashboardRow, cards: cardRows }
     : null;
+  const allCounts = new Map(sourceCountRows.map((row) => [row.connectionId, Number(row.value)]));
+  const periodCounts = new Map(
+    periodSourceCountRows.map((row) => [row.connectionId, Number(row.value)]),
+  );
+  const dashboardSources: DashboardSourceCardData[] = connectionRows.map((connection) => ({
+    ...connection,
+    records: allCounts.get(connection.id) ?? 0,
+    periodRecords: periodCounts.get(connection.id) ?? 0,
+  }));
 
   return (
     <div className="dashboard-summary-page mx-auto max-w-[1500px]">
@@ -299,6 +352,7 @@ export async function AnalyticsOverview({
         range={effectiveRange}
         timezone={timezone}
       />
+      <DashboardSourceCards sources={dashboardSources} />
     </div>
   );
 }

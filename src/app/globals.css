@@ -3818,6 +3818,450 @@ body {
   }
 }
 
+/* Range-aware dashboard and source navigation refinement. */
+.app-theme-dark {
+  --background: #000;
+  --card: #111216;
+  --surface-2: #17181d;
+  --surface-3: #202127;
+  --line: #292a31;
+  --line-strong: #3b3c45;
+}
+
+.app-theme-dark,
+.app-theme-dark .app-shell-layout,
+.app-theme-dark .app-workspace,
+.app-theme-dark .app-main {
+  background: #000;
+}
+
+.app-theme-dark .app-sidebar {
+  border-color: #303034;
+  background: #171717;
+}
+
+.app-theme-dark .app-topbar {
+  border-color: #303034;
+  background: #1d1d1f;
+}
+
+.app-sidebar-sources {
+  margin: 18px 10px 0;
+  border-top: 1px solid #343438;
+  padding-top: 16px;
+}
+
+.app-sidebar-sources .app-nav-section {
+  margin: 0 8px 8px;
+}
+
+.app-source-list {
+  display: grid;
+  gap: 3px;
+}
+
+.app-source-link {
+  display: grid;
+  min-height: 38px;
+  grid-template-columns: 29px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 9px;
+  border-radius: 7px;
+  padding: 4px 8px;
+  color: #a9a9ae;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.app-source-link:hover {
+  color: #f1f1f3;
+  background: #27272a;
+}
+
+.app-source-mark {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid;
+  border-radius: 7px;
+  background: #202024;
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.app-source-name {
+  overflow: hidden;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-source-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.app-source-status.attention {
+  background: #f05265;
+}
+
+.dashboard-metric-grid {
+  grid-auto-rows: 188px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-metric-card {
+  min-height: 188px;
+  border-color: #292a31;
+  background: #0f1014;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.25);
+}
+
+.dashboard-metric-card-large {
+  min-height: 388px;
+}
+
+.dashboard-metric-card-body {
+  min-height: 152px;
+  border-color: #27282e;
+  background: #121318;
+  padding: 17px 18px 14px;
+  box-shadow: none;
+}
+
+.dashboard-metric-card-body.has-timeline {
+  grid-template-columns: minmax(0, 1fr) minmax(115px, 44%);
+  gap: 16px;
+}
+
+.dashboard-metric-name {
+  color: #a8a8ae;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 590;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.dashboard-metric-card-labels small {
+  font-size: 0.62rem;
+}
+
+.dashboard-metric-value,
+.dashboard-metric-card-large .dashboard-metric-value {
+  margin-top: 1.15rem;
+  font-size: 2.42rem;
+  font-weight: 610;
+  letter-spacing: -0.055em;
+}
+
+.dashboard-metric-source {
+  margin-top: 0.7rem;
+  font-size: 0.66rem;
+}
+
+.dashboard-metric-card-footer {
+  min-height: 35px;
+  flex-basis: 35px;
+  padding: 0 17px;
+  font-size: 0.64rem;
+}
+
+.metric-card-chart-mini {
+  width: 100%;
+  min-height: 78px;
+  margin-top: 12px;
+}
+
+.metric-card-chart-mini .metric-card-chart-bars {
+  gap: clamp(1px, 0.22vw, 4px);
+}
+
+.dashboard-metric-card-large .dashboard-metric-card-body,
+.dashboard-metric-card-large .dashboard-metric-card-body.has-timeline {
+  padding: 18px;
+}
+
+.metric-card-chart-large {
+  min-height: 225px;
+  border-color: #292a31;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(33.333% - 1px),
+      rgb(128 129 133 / 0.12) 33.333%
+    ),
+    #0e0f13;
+}
+
+.metric-card-chart-tooltip {
+  z-index: 4;
+  display: grid;
+  min-width: 88px;
+  transform: translateX(-50%);
+  border-color: #43444d;
+  background: #090a0d;
+  text-align: left;
+}
+
+.metric-card-chart-tooltip::after {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid #43444d;
+  border-bottom: 1px solid #43444d;
+  background: #090a0d;
+  content: "";
+}
+
+.dashboard-source-section {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding: 24px 0 36px;
+}
+
+.dashboard-source-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.dashboard-source-heading h2 {
+  font-size: clamp(1.32rem, 1.7vw, 1.55rem);
+  font-weight: 520;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-source-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-source-card {
+  min-height: 176px;
+  border-color: #292a31;
+  background: #101115;
+  padding: 17px;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.22);
+}
+
+.dashboard-source-card:hover {
+  border-color: color-mix(in srgb, var(--source-color) 48%, #292a31);
+}
+
+.dashboard-source-card-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.dashboard-source-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--source-color) 42%, #292a31);
+  border-radius: 9px;
+  color: var(--source-color);
+  background: color-mix(in srgb, var(--source-color) 10%, #121318);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.dashboard-source-card h3 {
+  font-size: 0.84rem;
+  font-weight: 620;
+}
+
+.dashboard-source-card h3 + p {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-source-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--source-color) 28%, #292a31);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--source-color);
+  background: color-mix(in srgb, var(--source-color) 8%, transparent);
+  font-size: 0.58rem;
+  font-weight: 650;
+}
+
+.dashboard-source-health.attention {
+  border-color: #642f3b;
+  color: #fb7185;
+  background: #2a151b;
+}
+
+.dashboard-source-stats {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1.4fr;
+  gap: 14px;
+  margin: 23px 0 16px;
+}
+
+.dashboard-source-stats dt {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.dashboard-source-stats dd {
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: var(--foreground);
+  font-size: 0.71rem;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-source-activity {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #25262c;
+}
+
+.dashboard-source-activity span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--source-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--source-color) 55%, transparent);
+}
+
+.metric-review-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 14px;
+}
+
+.metric-color-palette {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 9px;
+}
+
+.metric-color-palette button {
+  width: 27px;
+  height: 27px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #3c3d45;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.metric-color-palette button:hover {
+  transform: scale(1.08);
+}
+
+.metric-color-palette button.active {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--foreground);
+}
+
+.builder-live-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 17px;
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+}
+
+.builder-live-preview span:first-child {
+  color: var(--muted);
+  font-size: 0.63rem;
+}
+
+.builder-live-preview strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 2rem;
+  font-weight: 610;
+  letter-spacing: -0.055em;
+}
+
+.builder-live-preview p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.63rem;
+}
+
+.builder-preview-swatch {
+  width: 48px;
+  height: 4px;
+  border-radius: 99px;
+  box-shadow: 0 0 18px currentColor;
+}
+
+.app-theme-light .dashboard-source-card {
+  border-color: #d2d0ca;
+  background: #fff;
+  box-shadow: 0 8px 18px rgb(31 32 35 / 0.05);
+}
+
+.app-theme-light .dashboard-source-activity {
+  background: #e4e2dd;
+}
+
+.app-theme-light .metric-color-palette button {
+  box-shadow: 0 0 0 1px #c9c7c1;
+}
+
+.app-theme-light .metric-color-palette button.active {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px #272421;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-metric-grid,
+  .dashboard-source-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard-metric-grid,
+  .dashboard-source-grid,
+  .metric-review-form {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metric-card-large {
+    grid-column: span 1;
+  }
+}
+
 /* Published metric cards: compact by default, expandable when a real record date exists. */
 .dashboard-metric-section {
   margin-top: 24px;
@@ -4911,4 +5355,214 @@ body {
     grid-column: span 1;
     grid-row: span 2;
   }
+}
+
+/* Keep the published metric cards as the final authority over legacy dashboard rules. */
+.dashboard-summary-page .dashboard-metric-grid {
+  grid-auto-rows: 188px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-summary-page .dashboard-metric-card {
+  min-height: 188px;
+  border-color: #292a31;
+  background: #0f1014;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.25);
+}
+
+.dashboard-summary-page .dashboard-metric-card-large {
+  min-height: 388px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-body {
+  min-height: 152px;
+  border-color: #27282e;
+  background: #121318;
+  padding: 17px 18px 14px;
+  box-shadow: none;
+}
+
+.dashboard-summary-page .dashboard-metric-card-body.has-timeline {
+  grid-template-columns: minmax(0, 1fr) minmax(115px, 44%);
+  gap: 16px;
+}
+
+.dashboard-summary-page .dashboard-metric-name {
+  color: #a8a8ae;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 590;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.dashboard-summary-page .dashboard-metric-card-labels small {
+  font-size: 0.62rem;
+}
+
+.dashboard-summary-page .dashboard-metric-value,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-value {
+  margin-top: 1.15rem;
+  font-size: 2.42rem;
+  font-weight: 610;
+  letter-spacing: -0.055em;
+}
+
+.dashboard-summary-page .dashboard-metric-source {
+  margin-top: 0.7rem;
+  font-size: 0.66rem;
+}
+
+.dashboard-summary-page .dashboard-metric-card-footer {
+  min-height: 35px;
+  flex-basis: 35px;
+  padding: 0 17px;
+  font-size: 0.64rem;
+}
+
+.dashboard-summary-page .metric-card-chart-mini {
+  width: 100%;
+  min-height: 78px;
+  margin-top: 12px;
+}
+
+.dashboard-summary-page .metric-card-chart-mini .metric-card-chart-bars {
+  gap: clamp(1px, 0.22vw, 4px);
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-body,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-body.has-timeline {
+  padding: 18px;
+}
+
+.dashboard-summary-page .metric-card-chart-large {
+  min-height: 225px;
+  border-color: #292a31;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(33.333% - 1px),
+      rgb(128 129 133 / 0.12) 33.333%
+    ),
+    #0e0f13;
+}
+
+.app-theme-light .dashboard-summary-page .dashboard-metric-card {
+  border-color: #d2d0ca;
+  background: #f0efec;
+  box-shadow:
+    inset 0 0 0 1px #f7f6f3,
+    0 1px 2px rgb(31 32 35 / 0.12),
+    0 8px 18px rgb(31 32 35 / 0.04);
+}
+
+.app-theme-light .dashboard-summary-page .dashboard-metric-card-body {
+  border-color: #dedcd7;
+  background: #fff;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-summary-page .dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .dashboard-summary-page .dashboard-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-summary-page .dashboard-metric-card-large {
+    grid-column: span 1;
+  }
+}
+
+.dashboard-summary-page .dashboard-metric-name {
+  min-width: 0;
+  flex: 1;
+}
+
+.dashboard-summary-page .dashboard-metric-value,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-value {
+  font-size: 2.15rem;
+}
+
+.metric-card-sparkline {
+  position: relative;
+  overflow: visible;
+}
+
+.metric-card-sparkline svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.metric-card-sparkline-points {
+  position: absolute;
+  inset: 0;
+}
+
+.metric-card-sparkline-points button {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  cursor: crosshair;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+}
+
+.metric-card-sparkline-points button:hover,
+.metric-card-sparkline-points button:focus-visible {
+  background: var(--foreground);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
+  outline: 0;
+}
+
+.dashboard-summary-page .dashboard-metric-card-body {
+  grid-template-rows: auto 1fr;
+}
+
+.dashboard-summary-page .dashboard-metric-card-body.has-timeline {
+  grid-template-columns: minmax(92px, 0.85fr) minmax(105px, 1.15fr);
+  grid-template-rows: auto 1fr;
+}
+
+.dashboard-summary-page .dashboard-metric-card-labels {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.dashboard-summary-page .dashboard-metric-card-copy {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dashboard-summary-page .metric-card-chart-mini {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-labels,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-copy,
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
+  width: 100%;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-labels {
+  order: 0;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-copy {
+  order: 1;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
+  order: 2;
 }

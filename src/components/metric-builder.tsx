@@ -94,6 +94,8 @@ const steps = [
   { label: "Review", detail: "Name and publish", icon: WandSparkles },
 ];
 
+const metricColorPalette = ["#8b5cf6", "#3b82f6", "#2dd4bf", "#f59e0b", "#ec4899", "#34d399"];
+
 const filterOperators: { value: FilterOperator; label: string }[] = [
   { value: "equals", label: "Exactly matches" },
   { value: "not_equals", label: "Does not match" },
@@ -443,7 +445,9 @@ export function MetricBuilder({
   const [uniqueKeyField, setUniqueKeyField] = useState("");
   const [timestampField, setTimestampField] = useState("");
   const [filters, setFilters] = useState<FilterRow[]>([]);
-  const [visualizationColor, setVisualizationColor] = useState("#8b5cf6");
+  const [visualizationColor, setVisualizationColor] = useState(
+    metricColorPalette[metricComponents.length % metricColorPalette.length] ?? "#8b5cf6",
+  );
   const [goalTarget, setGoalTarget] = useState("");
   const [name, setName] = useState("New metric");
   const [category, setCategory] = useState("Uncategorized");
@@ -483,6 +487,9 @@ export function MetricBuilder({
     sourceMode === "single" &&
     calculation !== "percentage" &&
     (connection?.provider !== "google-sheets" || Boolean(timestampField));
+  const livePreviewValue =
+    sourceMode === "combine" ? ratioPreview?.percentage : preview?.metricValue;
+  const livePreviewReady = sourceMode === "combine" ? Boolean(ratioPreview) : Boolean(preview);
 
   useEffect(() => {
     function closePicker(event: PointerEvent) {
@@ -1739,47 +1746,59 @@ export function MetricBuilder({
                   <p className="mt-1 text-sm text-[var(--muted)]">
                     Namzi will sync this source and keep the published metric updated.
                   </p>
-                  <label className="mt-6 block">
-                    <span className="field-label">Metric name</span>
-                    <input
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      className="field-control mt-2 w-full text-base font-semibold"
-                      placeholder="e.g. Qualified leads"
-                    />
-                  </label>
-                  <label className="mt-4 block">
-                    <span className="field-label">Category</span>
-                    <input
-                      value={category}
-                      onChange={(event) => setCategory(event.target.value)}
-                      className="field-control mt-2 w-full"
-                      placeholder="e.g. Sales, Acquisition, Delivery"
-                      maxLength={80}
-                    />
-                    <span className="mt-2 block text-xs text-[var(--muted)]">
-                      Categories become dashboard filters and keep related metrics together.
-                    </span>
-                  </label>
-                  <label className="mt-4 block">
-                    <span className="field-label">KPI goal (optional)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={goalTarget}
-                      onChange={(event) => setGoalTarget(event.target.value)}
-                      className="field-control mt-2 w-full"
-                      placeholder={
-                        calculation === "percentage" || sourceMode === "combine"
-                          ? "e.g. 35%"
-                          : "e.g. 500"
-                      }
-                    />
-                    <span className="mt-2 block text-xs text-[var(--muted)]">
-                      The live card will show progress against this target.
-                    </span>
-                  </label>
+                  <div className="metric-review-form mt-6">
+                    <label>
+                      <span className="field-label">Metric name</span>
+                      <input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        className="field-control mt-2 w-full text-base font-semibold"
+                        placeholder="e.g. Qualified leads"
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Category</span>
+                      <input
+                        value={category}
+                        onChange={(event) => setCategory(event.target.value)}
+                        className="field-control mt-2 w-full"
+                        placeholder="e.g. Sales, Acquisition, Delivery"
+                        maxLength={80}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">KPI goal (optional)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={goalTarget}
+                        onChange={(event) => setGoalTarget(event.target.value)}
+                        className="field-control mt-2 w-full"
+                        placeholder={
+                          calculation === "percentage" || sourceMode === "combine"
+                            ? "e.g. 35%"
+                            : "e.g. 500"
+                        }
+                      />
+                    </label>
+                    <div>
+                      <span className="field-label">Graph colour</span>
+                      <div className="metric-color-palette mt-2">
+                        {metricColorPalette.map((color) => (
+                          <button
+                            type="button"
+                            key={color}
+                            aria-label={`Use ${color} for this metric`}
+                            aria-pressed={visualizationColor === color}
+                            className={visualizationColor === color ? "active" : ""}
+                            style={{ backgroundColor: color }}
+                            onClick={() => setVisualizationColor(color)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                   <div className="mt-6 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-4">
                     <div className="flex items-end justify-between gap-4">
                       <div>
@@ -1790,7 +1809,7 @@ export function MetricBuilder({
                         </p>
                       </div>
                       <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                        Card color
+                        Custom colour
                         <input
                           type="color"
                           value={visualizationColor}
@@ -1901,12 +1920,34 @@ export function MetricBuilder({
           <aside className="data-inspector">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] p-4">
               <div>
-                <p className="text-sm font-semibold">Data inspector</p>
+                <p className="text-sm font-semibold">Live preview</p>
                 <p className="mt-1 max-w-[250px] truncate text-xs text-[var(--muted)]">
                   {currentSourceLabel}
                 </p>
               </div>
               <span className="live-badge">LIVE</span>
+            </div>
+            <div className="builder-live-preview">
+              <div>
+                <span>Current result</span>
+                <strong>
+                  {!livePreviewReady || livePreviewValue === undefined || livePreviewValue === null
+                    ? "—"
+                    : `${formatMetricValue(livePreviewValue)}${calculation === "percentage" || sourceMode === "combine" ? "%" : ""}`}
+                </strong>
+                <p>
+                  {sourceMode === "combine"
+                    ? "Two published metrics"
+                    : preview
+                      ? `${preview.matchingRecords.toLocaleString()} of ${preview.totalRecords.toLocaleString()} records`
+                      : "Pull test data to calculate"}
+                </p>
+              </div>
+              <span
+                className="builder-preview-swatch"
+                style={{ backgroundColor: visualizationColor }}
+                aria-hidden="true"
+              />
             </div>
             {sourceMode === "combine" ? (
               <div className="p-4">

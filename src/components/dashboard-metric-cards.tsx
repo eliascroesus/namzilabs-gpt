@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import type { DatePreset } from "@/server/metrics/time";
 
@@ -59,10 +59,24 @@ function formatMetricValue(value: number | null, percentage: boolean): string {
   return percentage ? `${formatted}%` : formatted;
 }
 
-function formatPointDate(value: string): string {
+function formatPointDate(value: string, range: DatePreset, timezone: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(
+    undefined,
+    range === "today" || range === "yesterday"
+      ? { timeZone: timezone, hour: "numeric" }
+      : { timeZone: timezone, month: "short", day: "numeric" },
+  ).format(date);
+}
+
+function rangeChartLabel(range: DatePreset): string {
+  if (range === "today") return "Today";
+  if (range === "yesterday") return "Yesterday";
+  if (range === "last_7_days") return "Last 7 days";
+  if (range === "last_30_days") return "Last 30 days";
+  if (range === "this_month") return "This month";
+  return "This quarter";
 }
 
 function metricFooterText(metric: DashboardMetricCardData): string {
@@ -78,13 +92,86 @@ function metricFooterText(metric: DashboardMetricCardData): string {
   return metric.category;
 }
 
-function TrendBars({ metric, large }: { metric: DashboardMetricCardData; large: boolean }) {
-  const points = metric.points.slice(large ? -30 : -7);
+function TrendBars({
+  metric,
+  large,
+  range,
+  timezone,
+}: {
+  metric: DashboardMetricCardData;
+  large: boolean;
+  range: DatePreset;
+  timezone: string;
+}) {
+  const points = metric.points;
   const [hovered, setHovered] = useState<number | null>(null);
+  const gradientId = useId().replaceAll(":", "");
   const maximum = Math.max(1, ...points.map((point) => point.value));
   const activePoint = hovered === null ? null : points[hovered];
   const activeLeft =
     hovered === null || !points.length ? 50 : ((hovered + 0.5) / points.length) * 100;
+
+  if (!large) {
+    const coordinates = points.map((point, index) => ({
+      x: points.length <= 1 ? 50 : (index / (points.length - 1)) * 100,
+      y: 36 - (point.value / maximum) * 31,
+    }));
+    const linePath = coordinates
+      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
+      .join(" ");
+    const areaPath = coordinates.length
+      ? `${linePath} L${coordinates.at(-1)!.x},40 L${coordinates[0]!.x},40 Z`
+      : "";
+    return (
+      <div
+        className="metric-card-chart-mini metric-card-sparkline"
+        role="group"
+        aria-label={`${metric.name} timeline`}
+      >
+        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor={metric.color} stopOpacity="0.28" />
+              <stop offset="1" stopColor={metric.color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={areaPath} fill={`url(#${gradientId})`} />
+          <path
+            d={linePath}
+            fill="none"
+            stroke={metric.color}
+            strokeWidth="1.8"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        <div className="metric-card-sparkline-points">
+          {coordinates.map((point, index) => (
+            <button
+              type="button"
+              key={`${metric.points[index]?.date}-${index}`}
+              style={{ left: `${point.x}%`, top: `${(point.y / 40) * 100}%` }}
+              onMouseEnter={() => setHovered(index)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(index)}
+              onBlur={() => setHovered(null)}
+              onClick={() => setHovered(index)}
+              aria-label={`${formatPointDate(metric.points[index]!.date, range, timezone)}: ${formatMetricValue(metric.points[index]!.value, metric.percentage)}`}
+            />
+          ))}
+        </div>
+        {activePoint ? (
+          <div
+            className="metric-card-chart-tooltip"
+            role="status"
+            style={{ left: `clamp(52px, ${activeLeft}%, calc(100% - 52px))` }}
+          >
+            <span>{formatPointDate(activePoint.date, range, timezone)}</span>
+            <strong>{formatMetricValue(activePoint.value, metric.percentage)}</strong>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={large ? "metric-card-chart-large" : "metric-card-chart-mini"}>
@@ -102,7 +189,8 @@ function TrendBars({ metric, large }: { metric: DashboardMetricCardData; large: 
             onMouseLeave={() => setHovered(null)}
             onFocus={() => setHovered(index)}
             onBlur={() => setHovered(null)}
-            aria-label={`${formatPointDate(point.date)}: ${formatMetricValue(point.value, metric.percentage)}`}
+            onClick={() => setHovered(index)}
+            aria-label={`${formatPointDate(point.date, range, timezone)}: ${formatMetricValue(point.value, metric.percentage)}`}
           />
         ))}
       </div>
@@ -112,15 +200,15 @@ function TrendBars({ metric, large }: { metric: DashboardMetricCardData; large: 
           role="status"
           style={{ left: `clamp(52px, ${activeLeft}%, calc(100% - 52px))` }}
         >
-          <span>{formatPointDate(activePoint.date)}</span>
+          <span>{formatPointDate(activePoint.date, range, timezone)}</span>
           <strong>{formatMetricValue(activePoint.value, metric.percentage)}</strong>
         </div>
       ) : null}
       {large ? (
         <div className="metric-card-chart-axis" aria-hidden="true">
-          <span>{points[0] ? formatPointDate(points[0].date) : ""}</span>
-          <span>Last 30 days</span>
-          <span>{points.at(-1) ? formatPointDate(points.at(-1)!.date) : ""}</span>
+          <span>{points[0] ? formatPointDate(points[0].date, range, timezone) : ""}</span>
+          <span>{rangeChartLabel(range)}</span>
+          <span>{points.at(-1) ? formatPointDate(points.at(-1)!.date, range, timezone) : ""}</span>
         </div>
       ) : null}
     </div>
@@ -367,7 +455,7 @@ export function DashboardMetricCards({
                       }}
                     >
                       {large ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                      {large ? "Standard" : "Large 30-day card"}
+                      {large ? "Standard" : "Large chart card"}
                     </button>
                   ) : null}
                 </div>
@@ -377,13 +465,13 @@ export function DashboardMetricCards({
                 <div
                   className={`dashboard-metric-card-body ${metric.hasTimeline && metric.points.length ? "has-timeline" : ""}`}
                 >
+                  <div className="dashboard-metric-card-labels">
+                    <Link href={`/metrics/${metric.slug}`} className="dashboard-metric-name">
+                      {metric.name}
+                    </Link>
+                    {metric.hasTimeline ? <small>{rangeChartLabel(range)}</small> : null}
+                  </div>
                   <div className="dashboard-metric-card-copy">
-                    <div className="dashboard-metric-card-labels">
-                      <Link href={`/metrics/${metric.slug}`} className="dashboard-metric-name">
-                        {metric.name}
-                      </Link>
-                      {metric.hasTimeline ? <small>{large ? "30 days" : "7 days"}</small> : null}
-                    </div>
                     <strong className="dashboard-metric-value">
                       {metric.error
                         ? "Unavailable"
@@ -392,7 +480,7 @@ export function DashboardMetricCards({
                     <p className="dashboard-metric-source">{metric.sourceLabel}</p>
                   </div>
                   {metric.hasTimeline && metric.points.length ? (
-                    <TrendBars metric={metric} large={large} />
+                    <TrendBars metric={metric} large={large} range={range} timezone={timezone} />
                   ) : null}
                 </div>
                 <div className="dashboard-metric-card-footer">
