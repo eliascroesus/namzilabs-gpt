@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, LoaderCircle, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowRight, LoaderCircle, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -47,11 +47,11 @@ export function MetricCard({
   if (deleted) return null;
 
   return (
-    <article className="metric-library-card shell-card group relative flex min-h-56 flex-col p-5 transition hover:border-[var(--line-strong)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+    <article className="metric-library-card shell-card group">
+      <div className="metric-library-card-topline">
+        <div className="metric-library-card-meta">
           <span className="metric-category-badge">{metric.category}</span>
-          <span className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[10px] font-bold text-[var(--muted)]">
+          <span className="metric-version-badge">
             {metric.currentPublishedVersion
               ? `v${metric.currentPublishedVersion} published`
               : "draft only"}
@@ -67,19 +67,12 @@ export function MetricCard({
           {deleting ? <LoaderCircle size={15} className="animate-spin" /> : <Trash2 size={15} />}
         </button>
       </div>
-      <Link href={`/metrics/${metric.slug}`} className="mt-5 flex flex-1 flex-col">
-        <h2 className="font-semibold">{metric.name}</h2>
-        <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--muted)]">
-          {metric.description || "No description"}
-        </p>
-        <div className="mt-auto flex items-center justify-between pt-5 text-[11px] text-[var(--muted)]">
-          <span className="inline-flex items-center gap-1">
-            <ShieldCheck size={13} /> Parameterized · traceable
-          </span>
-          <ArrowRight
-            size={15}
-            className="transition group-hover:translate-x-0.5 group-hover:text-[var(--foreground)]"
-          />
+      <Link href={`/metrics/${metric.slug}`} className="metric-library-card-link">
+        <h2>{metric.name}</h2>
+        <p>{metric.description || "No description"}</p>
+        <div className="metric-library-card-footer">
+          <span>View definition</span>
+          <ArrowRight size={15} />
         </div>
       </Link>
       {error ? <p className="mt-3 text-xs text-rose-300">{error}</p> : null}

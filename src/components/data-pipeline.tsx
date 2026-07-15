@@ -16,8 +16,8 @@ function dateLabel(value: Date | null): string {
 
 export function DataPipeline({ connections }: { connections: PipelineConnection[] }) {
   return (
-    <section className="shell-card overflow-hidden">
-      <div className="flex items-center justify-between border-b border-[var(--line)] p-5">
+    <section className="data-pipeline-panel shell-card overflow-hidden">
+      <div className="data-section-heading">
         <div>
           <h2 className="text-sm font-semibold">Data pipeline</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">

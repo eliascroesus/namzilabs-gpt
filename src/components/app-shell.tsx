@@ -54,12 +54,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {navigationPending ? <div className="app-route-progress" aria-hidden="true" /> : null}
       <aside className="app-sidebar">
         <Link href="/overview" className="app-sidebar-brand" aria-label="Namzilabs overview">
-          <span className="app-sidebar-brand-mark" aria-hidden="true">
-            n.
-          </span>
-          <span className="app-sidebar-brand-copy">
-            <strong>Namzi Data</strong>
-            <small>Metrics workspace</small>
+          <span className="app-sidebar-wordmark" aria-hidden="true">
+            namzilabs<span>.</span>
           </span>
         </Link>
         <p className="app-nav-section">Workspace</p>

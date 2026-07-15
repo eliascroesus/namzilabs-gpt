@@ -31,8 +31,8 @@ export default async function IntegrationsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="page-layout integrations-page mx-auto max-w-6xl">
+      <div className="page-header">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
             Data sources
@@ -48,9 +48,12 @@ export default async function IntegrationsPage() {
         </Link>
       </div>
 
-      <section className="mt-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Your connections</h2>
+      <section className="integration-section">
+        <div className="integration-section-heading">
+          <div>
+            <h2>Your connections</h2>
+            <p>Accounts currently sending data into this workspace.</p>
+          </div>
           <span className="status-pill">
             <Radio size={12} /> {rows.length} connected
           </span>
@@ -60,7 +63,7 @@ export default async function IntegrationsPage() {
             No provider has been connected for this organization.
           </div>
         ) : (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="connection-card-grid">
             {rows.map((connection) => (
               <ConnectionCard
                 key={connection.id}
@@ -81,14 +84,14 @@ export default async function IntegrationsPage() {
         )}
       </section>
 
-      <section className="mt-9">
-        <div>
-          <h2 className="text-base font-semibold">Add an app</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Authorize an account here. Data selection happens inside the metric builder.
-          </p>
+      <section className="integration-section">
+        <div className="integration-section-heading">
+          <div>
+            <h2>Add an app</h2>
+            <p>Authorize an account here. Data selection happens inside the metric builder.</p>
+          </div>
         </div>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="integration-option-grid">
           {connectors.map((connector) => {
             const enabled = available(connector.manifest.id);
             const content = (
@@ -126,7 +129,7 @@ export default async function IntegrationsPage() {
               <Link
                 key={connector.manifest.id}
                 href={`/integrations/new/${connector.manifest.id}`}
-                className="shell-card group p-5 transition hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]"
+                className="integration-option-card shell-card group"
               >
                 {content}
               </Link>
@@ -134,7 +137,7 @@ export default async function IntegrationsPage() {
               <div
                 key={connector.manifest.id}
                 aria-disabled="true"
-                className="shell-card p-5 opacity-70"
+                className="integration-option-card shell-card opacity-70"
               >
                 {content}
               </div>

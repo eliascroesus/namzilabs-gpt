@@ -2,7 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 
-import { MetricCard } from "@/components/metric-card";
+import { MetricLibrary } from "@/components/metric-library";
 import { getDb } from "@/db/client";
 import { metrics, metricVersions } from "@/db/schema";
 import { requireTenantContext } from "@/server/auth/tenant";
@@ -33,8 +33,8 @@ export default async function MetricsPage() {
     .where(and(eq(metrics.organizationId, tenant.organizationId), isNull(metrics.archivedAt)))
     .orderBy(desc(metrics.updatedAt));
   return (
-    <div className="mx-auto max-w-6xl">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="page-layout mx-auto max-w-6xl">
+      <div className="page-header">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
             Metric library
@@ -60,19 +60,18 @@ export default async function MetricsPage() {
           </Link>
         </section>
       ) : (
-        <div className="metric-library-grid mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((metric) => (
-            <MetricCard
-              key={metric.id}
-              metric={{
-                ...metric,
-                category: metric.definition
-                  ? parseMetricDefinition(metric.definition).category
-                  : "Uncategorized",
-              }}
-            />
-          ))}
-        </div>
+        <MetricLibrary
+          metrics={rows.map((metric) => ({
+            id: metric.id,
+            slug: metric.slug,
+            name: metric.name,
+            description: metric.description,
+            currentPublishedVersion: metric.currentPublishedVersion,
+            category: metric.definition
+              ? parseMetricDefinition(metric.definition).category
+              : "Uncategorized",
+          }))}
+        />
       )}
     </div>
   );

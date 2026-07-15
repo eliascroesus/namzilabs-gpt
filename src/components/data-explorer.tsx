@@ -86,8 +86,8 @@ export async function DataExplorer({ resourceType }: { resourceType?: string }) 
   }));
 
   return (
-    <div className="mx-auto max-w-[1500px]">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="page-layout data-page mx-auto max-w-[1500px]">
+      <div className="page-header">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
             Source observability
@@ -114,7 +114,7 @@ export async function DataExplorer({ resourceType }: { resourceType?: string }) 
         </div>
       ) : null}
 
-      <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="data-summary-grid">
         {[
           ["Available records", totalRecords, "Ready for metrics", Database],
           ["Active sources", activeSources, `${connectionRows.length} connected`, PlugZap],
@@ -123,10 +123,10 @@ export async function DataExplorer({ resourceType }: { resourceType?: string }) 
         ].map(([label, value, detail, Icon]) => {
           const TileIcon = Icon as typeof Database;
           return (
-            <article key={String(label)} className="data-summary-card">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--muted)]">{String(label)}</span>
-                <TileIcon size={15} />
+            <article key={String(label)} className="data-summary-card shell-card">
+              <div className="data-summary-card-heading">
+                <span>{String(label)}</span>
+                <TileIcon size={14} aria-hidden="true" />
               </div>
               <strong>{Number(value).toLocaleString()}</strong>
               <small>{String(detail)}</small>
@@ -136,12 +136,15 @@ export async function DataExplorer({ resourceType }: { resourceType?: string }) 
       </div>
 
       {resourceCounts.length ? (
-        <section className="mt-5">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-sm font-semibold">Data objects</h2>
-            <span className="text-xs text-[var(--muted)]">Click to inspect one object</span>
+        <section className="data-object-panel shell-card">
+          <div className="data-object-panel-heading">
+            <div>
+              <h2>Data objects</h2>
+              <p>Choose a synchronized object to inspect its latest records.</p>
+            </div>
+            <span>{resourceCounts.length} available</span>
           </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+          <div className="data-object-list">
             {resourceCounts.map((resource) => (
               <Link
                 key={resource.resourceType}
@@ -156,11 +159,11 @@ export async function DataExplorer({ resourceType }: { resourceType?: string }) 
         </section>
       ) : null}
 
-      <div className="mt-7">
+      <div className="data-page-section">
         <DataPipeline connections={connectionRows} />
       </div>
 
-      <div className="mt-7">
+      <div className="data-page-section">
         <DataRecordsBrowser rows={recordRows} />
       </div>
     </div>

@@ -49,7 +49,7 @@ export function ConnectionCard({
   }
 
   return (
-    <article className="shell-card group relative p-4 transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]">
+    <article className="connection-card shell-card group">
       <Link href={`/integrations/${connection.id}`} className="flex items-center gap-3 pr-20">
         <span className="provider-mark size-10">{connection.logo}</span>
         <span className="min-w-0 flex-1">

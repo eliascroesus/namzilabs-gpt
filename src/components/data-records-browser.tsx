@@ -50,7 +50,7 @@ export function DataRecordsBrowser({ rows }: { rows: DataRecordRow[] }) {
   }, [provider, query, rows, status]);
 
   return (
-    <section className="shell-card overflow-hidden">
+    <section className="data-records-panel shell-card overflow-hidden">
       <div className="data-browser-toolbar">
         <div className="min-w-0">
           <h2 className="text-base font-semibold">Unified source records</h2>
