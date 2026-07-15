@@ -289,7 +289,9 @@ export function MetricDetailEditor({
     originalOperation === "ratio" ? originalMeasure.denominatorMetricVersionId : "",
   );
   const [filters, setFilters] = useState(() => simpleFilters(definition.filters));
-  const [visualization, setVisualization] = useState(definition.visualization.display);
+  const [visualization, setVisualization] = useState<"kpi" | "trend">(
+    definition.visualization.display === "trend" ? "trend" : "kpi",
+  );
   const [visualizationColor, setVisualizationColor] = useState(
     ["#ff7417", "#f5741c"].includes(definition.visualization.color.toLowerCase())
       ? "#8b5cf6"
@@ -480,10 +482,7 @@ export function MetricDetailEditor({
               onChange={(event) => {
                 const next = event.target.value as typeof operation;
                 setOperation(next);
-                if (
-                  ["percentage", "ratio"].includes(next) &&
-                  (visualization === "trend" || visualization === "pie")
-                ) {
+                if (["percentage", "ratio"].includes(next) && visualization === "trend") {
                   setVisualization("kpi");
                 }
               }}
@@ -619,12 +618,11 @@ export function MetricDetailEditor({
               aria-label="Visualization color"
             />
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {(
               [
                 ["kpi", "KPI card"],
                 ["trend", "Trend graph"],
-                ["pie", "Pie slice"],
               ] as const
             ).map(([display, label]) => {
               const disabled = display !== "kpi" && isPercentage;

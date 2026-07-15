@@ -156,7 +156,10 @@ export const metricDefinitionSchema = z
       .optional(),
     visualization: z
       .object({
-        display: z.enum(["kpi", "trend", "pie"]).default("kpi"),
+        display: z.preprocess(
+          (value) => (value === "pie" ? "kpi" : value),
+          z.enum(["kpi", "trend"]).default("kpi"),
+        ),
         color: z
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)

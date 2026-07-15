@@ -86,7 +86,7 @@ type FilterOperator =
 type FilterRow = { id: string; field: string; operator: FilterOperator; value: string };
 type RatioOperand = { operation: OperandOperation; field: string; filters: FilterRow[] };
 type RatioPreview = { numerator: number; denominator: number; percentage: number | null };
-type VisualizationDisplay = "kpi" | "trend" | "pie";
+type VisualizationDisplay = "kpi" | "trend";
 
 const steps = [
   { label: "Source", detail: "App, account, and data", icon: Database },
@@ -1395,10 +1395,7 @@ export function MetricBuilder({
                             type="button"
                             onClick={() => {
                               setCalculation(value);
-                              if (
-                                value === "percentage" &&
-                                (visualization === "trend" || visualization === "pie")
-                              ) {
+                              if (value === "percentage" && visualization === "trend") {
                                 setVisualization("kpi");
                               }
                             }}
@@ -1769,7 +1766,7 @@ export function MetricBuilder({
                         </p>
                       </div>
                       <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                        Slice color
+                        Card color
                         <input
                           type="color"
                           value={visualizationColor}
@@ -1778,12 +1775,11 @@ export function MetricBuilder({
                         />
                       </label>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {(
                         [
                           ["kpi", "KPI card", "A focused live number"],
                           ["trend", "Trend graph", "A daily line or bar chart"],
-                          ["pie", "Pie slice", "Combine this with metrics from other sources"],
                         ] as const
                       ).map(([display, label, detail]) => {
                         const isRatioMetric =
@@ -1832,11 +1828,7 @@ export function MetricBuilder({
                       ],
                       [
                         "Dashboard",
-                        visualization === "pie"
-                          ? "Available as a pie slice"
-                          : visualization === "trend"
-                            ? "Preferred trend metric"
-                            : "KPI card",
+                        visualization === "trend" ? "Preferred trend metric" : "KPI card",
                       ],
                       [
                         "Live result",

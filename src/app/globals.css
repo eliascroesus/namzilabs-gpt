@@ -3817,3 +3817,726 @@ body {
     flex: 1;
   }
 }
+
+/* Published metric cards: compact by default, expandable when a real record date exists. */
+.dashboard-metric-section {
+  margin-top: 24px;
+  padding-bottom: 28px;
+}
+
+.dashboard-metric-section-heading {
+  display: flex;
+  min-height: 48px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 10px;
+}
+
+.dashboard-metric-section-heading .section-kicker {
+  margin: 0 0 3px;
+  color: #a78bfa;
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.dashboard-metric-section-heading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-metric-section-heading h2 + p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.dashboard-metric-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.dashboard-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #54d4a7;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.dashboard-card-error {
+  margin: 0 0 9px;
+  border: 1px solid #733b46;
+  border-radius: 7px;
+  color: #ffb4c0;
+  background: #482b31;
+  padding: 8px 10px;
+  font-size: 0.68rem;
+}
+
+.dashboard-metric-grid {
+  display: grid;
+  grid-auto-flow: dense;
+  grid-auto-rows: minmax(168px, auto);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboard-metric-card {
+  position: relative;
+  min-width: 0;
+  min-height: 168px;
+  overflow: hidden;
+  background: #333435;
+}
+
+.dashboard-metric-card-large {
+  min-height: 346px;
+  grid-column: span 2;
+  grid-row: span 2;
+}
+
+.dashboard-metric-card-editing {
+  border-color: #5f478e;
+  box-shadow:
+    inset 0 0 0 1px #7655b2,
+    0 8px 20px rgb(0 0 0 / 0.12);
+}
+
+.dashboard-metric-card-controls {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid #242526;
+  background: #2a2b2c;
+  padding: 4px 7px;
+}
+
+.dashboard-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: #a1a2a5;
+  cursor: grab;
+}
+
+.dashboard-drag-handle:active {
+  cursor: grabbing;
+}
+
+.dashboard-metric-card-controls .icon-button {
+  width: 25px;
+  height: 25px;
+}
+
+.dashboard-size-button {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border: 1px solid #4b3a70;
+  border-radius: 5px;
+  color: #d8ccff;
+  background: #392d50;
+  padding: 0 0.48rem;
+  font-size: 0.58rem;
+  font-weight: 620;
+}
+
+.dashboard-metric-card-content {
+  display: grid;
+  min-height: 166px;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 38%);
+  gap: 10px;
+  padding: 13px 14px;
+}
+
+.dashboard-metric-card-editing .dashboard-metric-card-content {
+  min-height: 132px;
+}
+
+.dashboard-metric-card-large .dashboard-metric-card-content {
+  min-height: 344px;
+  grid-template-columns: minmax(150px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  padding: 16px;
+}
+
+.dashboard-metric-card-large.dashboard-metric-card-editing .dashboard-metric-card-content {
+  min-height: 310px;
+}
+
+.dashboard-metric-card-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.dashboard-metric-card-labels {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.dashboard-metric-card-labels span {
+  overflow: hidden;
+  color: #aaa1c6;
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dashboard-metric-card-labels small {
+  flex: 0 0 auto;
+  color: #85868a;
+  font-size: 0.55rem;
+}
+
+.dashboard-metric-name {
+  margin-top: 9px;
+  overflow: hidden;
+  color: #d7d7d5;
+  font-size: 0.7rem;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-metric-name:hover {
+  color: #c4b5fd;
+}
+
+.dashboard-metric-value {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #f4f4f2;
+  font-size: 2rem;
+  font-weight: 620;
+  letter-spacing: -0.065em;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-metric-card-large .dashboard-metric-value {
+  margin-top: 8px;
+  font-size: 2.8rem;
+}
+
+.dashboard-metric-source {
+  margin-top: 5px;
+  overflow: hidden;
+  color: #87888b;
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-metric-comparison {
+  margin-top: auto;
+  padding-top: 8px;
+  color: #85868a;
+  font-size: 0.58rem;
+}
+
+.dashboard-metric-comparison .positive {
+  color: #4dd3a4;
+}
+
+.dashboard-metric-comparison .negative {
+  color: #f28b9b;
+}
+
+.metric-card-chart-mini,
+.metric-card-chart-large {
+  position: relative;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.metric-card-chart-mini {
+  min-height: 90px;
+  margin: 8px 0 6px;
+}
+
+.metric-card-chart-large {
+  min-height: 250px;
+  border: 1px solid #292a2b;
+  border-radius: 7px;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgb(128 129 133 / 0.14) 25%
+    ),
+    #303132;
+  padding: 20px 15px 25px;
+}
+
+.metric-card-chart-bars {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.metric-card-chart-large .metric-card-chart-bars {
+  inset: 20px 15px 25px;
+  gap: clamp(2px, 0.35vw, 6px);
+}
+
+.metric-card-chart-bar {
+  min-width: 3px;
+  flex: 1;
+  border: 0;
+  border-radius: 2px 2px 0 0;
+  padding: 0;
+  opacity: 0.82;
+  transition:
+    opacity 120ms ease,
+    filter 120ms ease;
+}
+
+.metric-card-chart-bar:hover,
+.metric-card-chart-bar:focus-visible {
+  opacity: 1;
+  filter: brightness(1.2);
+  outline: 0;
+}
+
+.metric-card-chart-bar.estimated {
+  opacity: 0.42;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    rgb(255 255 255 / 0.25) 3px,
+    rgb(255 255 255 / 0.25) 5px
+  );
+}
+
+.metric-card-chart-tooltip {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #55565a;
+  border-radius: 5px;
+  color: #c0c1c3;
+  background: #202122;
+  padding: 4px 6px;
+  box-shadow: 0 5px 14px rgb(0 0 0 / 0.3);
+  font-size: 0.54rem;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.metric-card-chart-tooltip strong {
+  color: #fff;
+  font-size: 0.6rem;
+}
+
+.metric-card-chart-axis {
+  display: flex;
+  position: absolute;
+  right: 15px;
+  bottom: 7px;
+  left: 15px;
+  align-items: center;
+  justify-content: space-between;
+  color: #7f8083;
+  font-size: 0.5rem;
+}
+
+.dashboard-metric-no-timeline {
+  display: flex;
+  align-self: center;
+  flex-direction: column;
+  align-items: flex-end;
+  color: #9c9da0;
+  text-align: right;
+}
+
+.dashboard-metric-no-timeline span {
+  font-size: 0.63rem;
+  font-weight: 620;
+}
+
+.dashboard-metric-no-timeline small {
+  max-width: 110px;
+  margin-top: 3px;
+  color: #737478;
+  font-size: 0.51rem;
+  line-height: 1.35;
+}
+
+.dashboard-metric-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.dashboard-metric-empty h3 {
+  color: var(--foreground);
+  font-size: 0.84rem;
+}
+
+.dashboard-metric-empty p {
+  font-size: 0.68rem;
+}
+
+/* Complete light appearance. Component tokens and hard-coded dark workspace surfaces update here. */
+.app-theme-light {
+  color-scheme: light;
+  --background: #f5f4f1;
+  --foreground: #222326;
+  --card: #ffffff;
+  --surface-2: #f3f2ef;
+  --surface-3: #e9e7e2;
+  --muted: #717279;
+  --line: #d8d6d1;
+  --line-strong: #c3c0ba;
+  --brand: #7c3aed;
+  --brand-soft: #ede8ff;
+  --accent: #7c3aed;
+}
+
+.app-theme-light .app-shell-layout,
+.app-theme-light .app-workspace,
+.app-theme-light .app-main {
+  color: var(--foreground);
+  background: #f5f4f1;
+}
+
+.app-theme-light .app-sidebar {
+  border-color: #d5d2cd;
+  background: #eeece8;
+  box-shadow: inset -1px 0 0 #fff;
+}
+
+.app-theme-light .app-sidebar-brand:hover,
+.app-theme-light .app-nav-link:hover {
+  background: #e3e0db;
+}
+
+.app-theme-light .app-nav-link {
+  color: #65666c;
+}
+
+.app-theme-light .app-nav-link-active {
+  color: #6d32cf;
+  background: #e5dfef;
+}
+
+.app-theme-light .sidebar-bottom-navigation {
+  border-color: #d8d5d0;
+}
+
+.app-theme-light .app-topbar {
+  border-color: #d7d4cf;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 #ebe9e4;
+}
+
+.app-theme-light .app-breadcrumb {
+  color: #77787d;
+}
+
+.app-theme-light .shell-card,
+.app-theme-light .summary-stat-card,
+.app-theme-light .data-summary-card,
+.app-theme-light .metric-library-card,
+.app-theme-light .connection-card,
+.app-theme-light .integration-option-card,
+.app-theme-light .data-object-panel,
+.app-theme-light .data-pipeline-panel,
+.app-theme-light .data-records-panel,
+.app-theme-light .source-option,
+.app-theme-light .calculation-option,
+.app-theme-light .visualization-option,
+.app-theme-light .filter-row,
+.app-theme-light .ratio-side-card,
+.app-theme-light .theme-choice,
+.app-theme-light .data-picker,
+.app-theme-light .data-inspector,
+.app-theme-light .dashboard-metric-card {
+  border-color: #d2d0ca;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 1px #f7f6f3,
+    0 1px 2px rgb(31 32 35 / 0.12),
+    0 8px 18px rgb(31 32 35 / 0.04);
+}
+
+.app-theme-light .summary-stat-card-body {
+  border-color: #dedcd7;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 #f2f1ed;
+}
+
+.app-theme-light .summary-stat-card {
+  background: #f0efec;
+}
+
+.app-theme-light .summary-stat-card-footer {
+  color: #67686d;
+  background: #f0efec;
+}
+
+.app-theme-light .summary-stat-label,
+.app-theme-light .summary-stat-context,
+.app-theme-light .dashboard-metric-source,
+.app-theme-light .dashboard-metric-comparison,
+.app-theme-light .dashboard-metric-card-labels small {
+  color: #74757a;
+}
+
+.app-theme-light .summary-stat-value,
+.app-theme-light .dashboard-metric-value,
+.app-theme-light .dashboard-metric-name,
+.app-theme-light .metric-library-card-link h2 {
+  color: #222326;
+}
+
+.app-theme-light .dashboard-range-selector,
+.app-theme-light .metric-library-toolbar label,
+.app-theme-light .field-control,
+.app-theme-light .secondary-link,
+.app-theme-light .icon-button,
+.app-theme-light .resource-count-card {
+  border-color: #cfcdc7;
+  color: #55565c;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #f6f5f2;
+}
+
+.app-theme-light .dashboard-range-selector button:hover,
+.app-theme-light .secondary-link:hover,
+.app-theme-light .icon-button:hover,
+.app-theme-light .resource-count-card:hover {
+  color: #26272a;
+  background: #eceae5;
+}
+
+.app-theme-light .dashboard-range-selector button.active,
+.app-theme-light .builder-step-active,
+.app-theme-light .source-option-active,
+.app-theme-light .visualization-option-active,
+.app-theme-light .theme-choice-active {
+  color: #fff;
+  border-color: #7c3aed;
+  background: #7c3aed;
+  box-shadow: inset 0 0 0 1px #a78bfa;
+}
+
+.app-theme-light .metric-library-card-topline,
+.app-theme-light .data-object-panel-heading,
+.app-theme-light .data-section-heading,
+.app-theme-light .data-browser-toolbar,
+.app-theme-light .data-browser-filters,
+.app-theme-light .dashboard-metric-card-controls {
+  border-color: #dedcd7;
+  background: #f5f4f1;
+}
+
+.app-theme-light .data-record-table thead,
+.app-theme-light .app-main thead,
+.app-theme-light .data-browser-filters {
+  background: #eeece8;
+}
+
+.app-theme-light .data-record-table tbody tr,
+.app-theme-light .app-main tbody tr {
+  border-color: #dfddd8;
+}
+
+.app-theme-light .data-record-table tbody tr:hover,
+.app-theme-light .app-main tbody tr:hover,
+.app-theme-light .metric-library-card:hover,
+.app-theme-light .connection-card:hover,
+.app-theme-light .integration-option-card:hover {
+  background: #f1efeb !important;
+  border-color: #c9c6c0 !important;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+
+.app-theme-light .metric-category-badge {
+  color: #6d32cf;
+  background: #ebe4fb;
+}
+
+.app-theme-light .metric-version-badge,
+.app-theme-light .status-pill,
+.app-theme-light .data-object-chip,
+.app-theme-light .data-status-chip,
+.app-theme-light .live-badge {
+  border-color: #d1cec8;
+  color: #66676c;
+  background: #f2f0ec;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+
+.app-theme-light .metric-card-chart-large {
+  border-color: #d8d5cf;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgb(74 75 80 / 0.1) 25%
+    ),
+    #f5f4f1;
+}
+
+.app-theme-light .metric-card-chart-tooltip {
+  border-color: #c7c4be;
+  color: #65666b;
+  background: #fff;
+  box-shadow: 0 6px 16px rgb(31 32 35 / 0.16);
+}
+
+.app-theme-light .metric-card-chart-tooltip strong {
+  color: #222326;
+}
+
+.app-theme-light .dashboard-metric-no-timeline {
+  color: #67686d;
+}
+
+.app-theme-light .dashboard-metric-no-timeline small,
+.app-theme-light .metric-card-chart-axis {
+  color: #88898e;
+}
+
+.app-theme-light .dashboard-size-button {
+  border-color: #c7b7ed;
+  color: #6d32cf;
+  background: #eee8fb;
+}
+
+.app-theme-light .theme-choice-icon {
+  color: #6d32cf;
+  background: #eee8fb;
+}
+
+.app-theme-light .dashboard-card-error {
+  border-color: #e6b5bc;
+  color: #a53243;
+  background: #fff0f2;
+}
+
+@media (min-width: 1220px) {
+  .app-nav-section {
+    font-size: 0.69rem;
+  }
+
+  .app-nav-link,
+  .app-breadcrumb {
+    font-size: 0.75rem;
+  }
+
+  .page-header > div:first-child > h1 + p,
+  .app-main > div > div:first-child h1 + p,
+  .app-main > div > h1 + p {
+    font-size: 0.78rem;
+  }
+
+  .metric-library-toolbar > p,
+  .metric-library-card-link > p,
+  .metric-library-card-footer,
+  .data-object-panel-heading p,
+  .data-section-heading p,
+  .data-browser-toolbar p,
+  .integration-section-heading p {
+    font-size: 0.69rem;
+  }
+
+  .summary-stat-label,
+  .summary-stat-context,
+  .summary-stat-card-footer,
+  .dashboard-metric-section-heading h2 + p,
+  .dashboard-metric-source,
+  .dashboard-metric-comparison {
+    font-size: 0.65rem;
+  }
+
+  .summary-stat-value {
+    font-size: 2.12rem;
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboard-metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .dashboard-metric-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-metric-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .dashboard-metric-actions {
+    flex-wrap: wrap;
+  }
+
+  .dashboard-metric-grid {
+    grid-auto-rows: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metric-card-large {
+    min-height: 390px;
+    grid-column: span 1;
+    grid-row: span 1;
+  }
+
+  .dashboard-metric-card-large .dashboard-metric-card-content {
+    min-height: 350px;
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card-chart-large {
+    min-height: 210px;
+  }
+}
