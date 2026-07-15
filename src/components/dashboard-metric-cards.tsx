@@ -26,6 +26,7 @@ export type DashboardMetricCardData = {
   sourceLabel: string;
   value: number | null;
   percentage: boolean;
+  goal: number | null;
   color: string;
   points: { date: string; value: number; estimated: boolean }[];
   hasTimeline: boolean;
@@ -64,11 +65,26 @@ function formatPointDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
+function metricFooterText(metric: DashboardMetricCardData): string {
+  if (metric.goal !== null) {
+    if (metric.value === null) return `Goal ${formatMetricValue(metric.goal, metric.percentage)}`;
+    if (metric.goal === 0) return `Goal ${formatMetricValue(metric.goal, metric.percentage)}`;
+    const progress = Math.max(0, (metric.value / metric.goal) * 100);
+    return `${progress.toLocaleString(undefined, { maximumFractionDigits: 1 })}% of ${formatMetricValue(metric.goal, metric.percentage)} goal`;
+  }
+  if (metric.changePercent !== null) {
+    return `${metric.changePercent >= 0 ? "+" : ""}${metric.changePercent.toFixed(1)}% vs prior period`;
+  }
+  return metric.category;
+}
+
 function TrendBars({ metric, large }: { metric: DashboardMetricCardData; large: boolean }) {
   const points = metric.points.slice(large ? -30 : -7);
   const [hovered, setHovered] = useState<number | null>(null);
   const maximum = Math.max(1, ...points.map((point) => point.value));
   const activePoint = hovered === null ? null : points[hovered];
+  const activeLeft =
+    hovered === null || !points.length ? 50 : ((hovered + 0.5) / points.length) * 100;
 
   return (
     <div className={large ? "metric-card-chart-large" : "metric-card-chart-mini"}>
@@ -91,7 +107,11 @@ function TrendBars({ metric, large }: { metric: DashboardMetricCardData; large: 
         ))}
       </div>
       {activePoint ? (
-        <div className="metric-card-chart-tooltip" role="status">
+        <div
+          className="metric-card-chart-tooltip"
+          role="status"
+          style={{ left: `clamp(52px, ${activeLeft}%, calc(100% - 52px))` }}
+        >
           <span>{formatPointDate(activePoint.date)}</span>
           <strong>{formatMetricValue(activePoint.value, metric.percentage)}</strong>
         </div>
@@ -242,10 +262,7 @@ export function DashboardMetricCards({
     return (
       <section className="dashboard-metric-section">
         <div className="dashboard-metric-section-heading">
-          <div>
-            <p className="section-kicker">Published metrics</p>
-            <h2>Your live metrics</h2>
-          </div>
+          <h2>Your live metrics</h2>
         </div>
         <div className="dashboard-metric-empty shell-card">
           <LayoutGrid size={22} />
@@ -262,11 +279,7 @@ export function DashboardMetricCards({
   return (
     <section className="dashboard-metric-section" aria-label="Published metric cards">
       <div className="dashboard-metric-section-heading">
-        <div>
-          <p className="section-kicker">Published metrics</p>
-          <h2>Your live metrics</h2>
-          <p>Drag to rearrange. Timeline metrics can expand into a 30-day view.</p>
-        </div>
+        <h2>Your live metrics</h2>
         <div className="dashboard-metric-actions">
           {saved ? (
             <span className="dashboard-save-state">
@@ -361,39 +374,31 @@ export function DashboardMetricCards({
               ) : null}
 
               <div className="dashboard-metric-card-content">
-                <div className="dashboard-metric-card-copy">
-                  <div className="dashboard-metric-card-labels">
-                    <span>{metric.category}</span>
-                    {metric.hasTimeline ? <small>{large ? "30 days" : "7 days"}</small> : null}
+                <div
+                  className={`dashboard-metric-card-body ${metric.hasTimeline && metric.points.length ? "has-timeline" : ""}`}
+                >
+                  <div className="dashboard-metric-card-copy">
+                    <div className="dashboard-metric-card-labels">
+                      <Link href={`/metrics/${metric.slug}`} className="dashboard-metric-name">
+                        {metric.name}
+                      </Link>
+                      {metric.hasTimeline ? <small>{large ? "30 days" : "7 days"}</small> : null}
+                    </div>
+                    <strong className="dashboard-metric-value">
+                      {metric.error
+                        ? "Unavailable"
+                        : formatMetricValue(metric.value, metric.percentage)}
+                    </strong>
+                    <p className="dashboard-metric-source">{metric.sourceLabel}</p>
                   </div>
-                  <Link href={`/metrics/${metric.slug}`} className="dashboard-metric-name">
-                    {metric.name}
-                  </Link>
-                  <strong className="dashboard-metric-value">
-                    {metric.error
-                      ? "Unavailable"
-                      : formatMetricValue(metric.value, metric.percentage)}
-                  </strong>
-                  <p className="dashboard-metric-source">{metric.sourceLabel}</p>
-                  <div className="dashboard-metric-comparison">
-                    {metric.changePercent === null ? (
-                      <span>No prior comparison</span>
-                    ) : (
-                      <span className={metric.changePercent >= 0 ? "positive" : "negative"}>
-                        {metric.changePercent >= 0 ? "+" : ""}
-                        {metric.changePercent.toFixed(1)}% vs prior period
-                      </span>
-                    )}
-                  </div>
+                  {metric.hasTimeline && metric.points.length ? (
+                    <TrendBars metric={metric} large={large} />
+                  ) : null}
                 </div>
-                {metric.hasTimeline && metric.points.length ? (
-                  <TrendBars metric={metric} large={large} />
-                ) : (
-                  <div className="dashboard-metric-no-timeline">
-                    <span>Live value</span>
-                    <small>Add a record date to unlock a timeline</small>
-                  </div>
-                )}
+                <div className="dashboard-metric-card-footer">
+                  <span style={{ backgroundColor: metric.color }} aria-hidden="true" />
+                  <p>{metricFooterText(metric)}</p>
+                </div>
               </div>
             </article>
           );

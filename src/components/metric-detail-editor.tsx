@@ -289,13 +289,13 @@ export function MetricDetailEditor({
     originalOperation === "ratio" ? originalMeasure.denominatorMetricVersionId : "",
   );
   const [filters, setFilters] = useState(() => simpleFilters(definition.filters));
-  const [visualization, setVisualization] = useState<"kpi" | "trend">(
-    definition.visualization.display === "trend" ? "trend" : "kpi",
-  );
   const [visualizationColor, setVisualizationColor] = useState(
     ["#ff7417", "#f5741c"].includes(definition.visualization.color.toLowerCase())
       ? "#8b5cf6"
       : definition.visualization.color,
+  );
+  const [goalTarget, setGoalTarget] = useState(
+    definition.goal ? String(definition.goal.target) : "",
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -351,14 +351,19 @@ export function MetricDetailEditor({
     return {
       ...definition,
       category: category.trim() || "Uncategorized",
+      ...(goalTarget.trim() ? { goal: { target: Number(goalTarget) } } : { goal: undefined }),
       measure,
       filters: isRatio ? [] : definitionFilters(filters),
-      visualization: { display: visualization, color: visualizationColor },
+      visualization: { display: "kpi", color: visualizationColor },
     };
   }
 
   async function saveMetric() {
     if (!name.trim()) return;
+    if (goalTarget.trim() && (!Number.isFinite(Number(goalTarget)) || Number(goalTarget) < 0)) {
+      setError("Enter a valid KPI goal of zero or more.");
+      return;
+    }
     if (isRatio && (!numeratorVersionId || !denominatorVersionId)) {
       setError("Choose both component metrics.");
       return;
@@ -437,6 +442,13 @@ export function MetricDetailEditor({
                   : `${currentValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}${isPercentage ? "%" : ""}`}
               </p>
               <p className="mt-2 text-xs text-[var(--muted)]">Current 30-day window</p>
+              {definition.goal && currentValue !== null ? (
+                <p className="mt-2 text-xs font-medium text-[var(--accent)]">
+                  {definition.goal.target === 0
+                    ? `Goal ${definition.goal.target.toLocaleString()}${isPercentage ? "%" : ""}`
+                    : `${((currentValue / definition.goal.target) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}% of ${definition.goal.target.toLocaleString()}${isPercentage ? "%" : ""} goal`}
+                </p>
+              ) : null}
             </div>
             <span className="status-pill">Version {version.version} published</span>
           </div>
@@ -447,7 +459,7 @@ export function MetricDetailEditor({
           <p className="mt-1 text-xs text-[var(--muted)]">
             Saving creates and publishes a traceable new version.
           </p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label>
               <span className="field-label">Metric name</span>
               <input
@@ -474,6 +486,18 @@ export function MetricDetailEditor({
                 maxLength={80}
               />
             </label>
+            <label>
+              <span className="field-label">KPI goal (optional)</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={goalTarget}
+                onChange={(event) => setGoalTarget(event.target.value)}
+                className="field-control mt-2 w-full"
+                placeholder={isPercentage ? "e.g. 35%" : "e.g. 500"}
+              />
+            </label>
           </div>
           <label className="mt-5 block">
             <span className="field-label">Calculation</span>
@@ -482,9 +506,6 @@ export function MetricDetailEditor({
               onChange={(event) => {
                 const next = event.target.value as typeof operation;
                 setOperation(next);
-                if (["percentage", "ratio"].includes(next) && visualization === "trend") {
-                  setVisualization("kpi");
-                }
               }}
               className="field-control mt-2 w-full"
             >
@@ -607,8 +628,11 @@ export function MetricDetailEditor({
         <section className="shell-card p-5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-base font-semibold">Dashboard display</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">Choose its default visualization.</p>
+              <h2 className="text-base font-semibold">Dashboard card</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Every metric is a KPI card. A chart appears automatically when a record-date column
+                is configured.
+              </p>
             </div>
             <input
               type="color"
@@ -617,32 +641,6 @@ export function MetricDetailEditor({
               className="h-9 w-12 cursor-pointer rounded border border-[var(--line)] bg-transparent"
               aria-label="Visualization color"
             />
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {(
-              [
-                ["kpi", "KPI card"],
-                ["trend", "Trend graph"],
-              ] as const
-            ).map(([display, label]) => {
-              const disabled = display !== "kpi" && isPercentage;
-              return (
-                <button
-                  key={display}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => setVisualization(display)}
-                  className={`visualization-option ${visualization === display ? "visualization-option-active" : ""}`}
-                >
-                  <span className="font-semibold">{label}</span>
-                  {disabled ? (
-                    <span className="mt-1 block text-xs text-[var(--muted)]">
-                      Unavailable for ratios
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
           </div>
         </section>
 
@@ -683,7 +681,18 @@ export function MetricDetailEditor({
               ["Spreadsheet", source?.spreadsheetName ?? "—"],
               ["Worksheet", source?.sheetName ?? "—"],
               ["Unique row ID", String(resourceConfiguration?.uniqueKeyColumn ?? "—")],
-              ["Record date", String(resourceConfiguration?.timestampColumn ?? "Sync time")],
+              [
+                "Timeline",
+                resourceConfiguration?.timestampColumn
+                  ? `Enabled · ${String(resourceConfiguration.timestampColumn)}`
+                  : "Not configured",
+              ],
+              [
+                "KPI goal",
+                definition.goal
+                  ? `${definition.goal.target.toLocaleString()}${isPercentage ? "%" : ""}`
+                  : "Not set",
+              ],
             ].map(([label, value]) => (
               <div
                 key={label}

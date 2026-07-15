@@ -115,19 +115,27 @@ describe("metric SQL compiler", () => {
     expect(definition.measure).toMatchObject({ operation: "ratio", asPercentage: true });
   });
 
-  it("prevents ratio metrics from being configured as trend graphs", () => {
-    expect(() =>
-      parseMetricDefinition({
-        dataset: "source_records",
-        measure: {
-          operation: "ratio",
-          numeratorMetricVersionId: "00000000-0000-4000-8000-000000000010",
-          denominatorMetricVersionId: "00000000-0000-4000-8000-000000000011",
-          asPercentage: true,
-        },
-        visualization: { display: "trend", color: "#8b5cf6" },
-      }),
-    ).toThrow("cannot be used as time-series graphs");
+  it("normalizes legacy trend preferences to automatic KPI cards", () => {
+    const definition = parseMetricDefinition({
+      dataset: "source_records",
+      measure: {
+        operation: "ratio",
+        numeratorMetricVersionId: "00000000-0000-4000-8000-000000000010",
+        denominatorMetricVersionId: "00000000-0000-4000-8000-000000000011",
+        asPercentage: true,
+      },
+      visualization: { display: "trend", color: "#8b5cf6" },
+    });
+    expect(definition.visualization.display).toBe("kpi");
+  });
+
+  it("keeps an optional KPI goal with the published metric definition", () => {
+    const definition = parseMetricDefinition({
+      dataset: "source_records",
+      measure: { operation: "count" },
+      goal: { target: 250 },
+    });
+    expect(definition.goal).toEqual({ target: 250 });
   });
 
   it("scopes spreadsheet metrics to one connection and tab while parameterizing column names", () => {

@@ -137,6 +137,11 @@ export const metricDefinitionSchema = z
   .object({
     dataset: datasetSchema,
     category: z.string().trim().min(1).max(80).default("Uncategorized"),
+    goal: z
+      .object({
+        target: z.number().finite().nonnegative(),
+      })
+      .optional(),
     source: metricSourceSchema.optional(),
     measure: measureSchema,
     filters: z.array(filterNodeSchema).max(20).default([]),
@@ -157,8 +162,8 @@ export const metricDefinitionSchema = z
     visualization: z
       .object({
         display: z.preprocess(
-          (value) => (value === "pie" ? "kpi" : value),
-          z.enum(["kpi", "trend"]).default("kpi"),
+          (value) => (["pie", "trend"].includes(String(value)) ? "kpi" : value),
+          z.literal("kpi").default("kpi"),
         ),
         color: z
           .string()
@@ -173,16 +178,6 @@ export const metricDefinitionSchema = z
     }
     if (definition.funnelSteps && definition.measure.operation !== "count") {
       context.addIssue({ code: "custom", message: "Funnel steps use count as their measure." });
-    }
-    if (
-      definition.visualization.display === "trend" &&
-      ["percentage", "ratio"].includes(definition.measure.operation)
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Percentage and ratio metrics cannot be used as time-series graphs.",
-        path: ["visualization", "display"],
-      });
     }
   });
 

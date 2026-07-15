@@ -16,6 +16,7 @@ const metrics: DashboardMetricCardData[] = [
     sourceLabel: "Leads / Sheet1",
     value: 42,
     percentage: false,
+    goal: 50,
     color: "#8b5cf6",
     points: Array.from({ length: 30 }, (_, index) => ({
       date: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
@@ -35,6 +36,7 @@ const metrics: DashboardMetricCardData[] = [
     sourceLabel: "Combined metrics",
     value: 36.84,
     percentage: true,
+    goal: null,
     color: "#34d399",
     points: [],
     hasTimeline: false,
@@ -60,7 +62,8 @@ describe("DashboardMetricCards", () => {
     expect(html).toContain("Booking rate");
     expect(html).toContain("36.84%");
     expect(html).toContain("Bookings timeline");
-    expect(html).toContain("Add a record date to unlock a timeline");
+    expect(html).not.toContain("Booking rate timeline");
+    expect(html).toContain("84% of 50 goal");
   });
 
   it("restores a saved large card as a 30-day dashboard view", () => {

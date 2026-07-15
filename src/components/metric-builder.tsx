@@ -86,8 +86,6 @@ type FilterOperator =
 type FilterRow = { id: string; field: string; operator: FilterOperator; value: string };
 type RatioOperand = { operation: OperandOperation; field: string; filters: FilterRow[] };
 type RatioPreview = { numerator: number; denominator: number; percentage: number | null };
-type VisualizationDisplay = "kpi" | "trend";
-
 const steps = [
   { label: "Source", detail: "App, account, and data", icon: Database },
   { label: "Test data", detail: "Recent real records", icon: RefreshCw },
@@ -445,8 +443,8 @@ export function MetricBuilder({
   const [uniqueKeyField, setUniqueKeyField] = useState("");
   const [timestampField, setTimestampField] = useState("");
   const [filters, setFilters] = useState<FilterRow[]>([]);
-  const [visualization, setVisualization] = useState<VisualizationDisplay>("kpi");
   const [visualizationColor, setVisualizationColor] = useState("#8b5cf6");
+  const [goalTarget, setGoalTarget] = useState("");
   const [name, setName] = useState("New metric");
   const [category, setCategory] = useState("Uncategorized");
   const [loading, setLoading] = useState(false);
@@ -481,6 +479,10 @@ export function MetricBuilder({
           : "Choose spreadsheet and tab"
         : genericResource || "Choose a data object";
   const testReady = sourceMode === "combine" ? Boolean(ratioPreview) : Boolean(preview);
+  const dashboardHasTimeline =
+    sourceMode === "single" &&
+    calculation !== "percentage" &&
+    (connection?.provider !== "google-sheets" || Boolean(timestampField));
 
   useEffect(() => {
     function closePicker(event: PointerEvent) {
@@ -767,6 +769,11 @@ export function MetricBuilder({
 
   async function publishMetric() {
     if (!sourceReady || !testReady || !name.trim()) return;
+    const parsedGoal = goalTarget.trim() ? Number(goalTarget) : null;
+    if (parsedGoal !== null && (!Number.isFinite(parsedGoal) || parsedGoal < 0)) {
+      setError("Enter a valid KPI goal of zero or more.");
+      return;
+    }
     setPublishing(true);
     setError(null);
     try {
@@ -789,7 +796,8 @@ export function MetricBuilder({
               filters: [],
               groupBy: [],
               comparison: "previous_period",
-              visualization: { display: visualization, color: visualizationColor },
+              ...(parsedGoal !== null ? { goal: { target: parsedGoal } } : {}),
+              visualization: { display: "kpi", color: visualizationColor },
             },
           }),
         });
@@ -870,7 +878,8 @@ export function MetricBuilder({
         timeField: "occurred_at",
         groupBy: [],
         comparison: "previous_period",
-        visualization: { display: visualization, color: visualizationColor },
+        ...(parsedGoal !== null ? { goal: { target: parsedGoal } } : {}),
+        visualization: { display: "kpi", color: visualizationColor },
       };
       const response = await fetch("/api/metrics", {
         method: "POST",
@@ -987,7 +996,6 @@ export function MetricBuilder({
                         setSourceMode("combine");
                         setPreview(null);
                         setCalculation("percentage");
-                        if (visualization === "trend") setVisualization("kpi");
                       }}
                       disabled={metricComponents.length < 2}
                       className={`source-option ${sourceMode === "combine" ? "source-option-active" : ""}`}
@@ -1329,14 +1337,14 @@ export function MetricBuilder({
                           <label>
                             <span className="field-label">
                               Record date (optional)
-                              <InfoTooltip label="This date controls dashboard time ranges and trend graphs. Pick the real event date for historical reporting, or keep sync time when the sheet has no reliable date column." />
+                              <InfoTooltip label="This date controls dashboard ranges and the card chart. Pick the real event date for historical reporting. Leave it empty when the sheet has no reliable date column." />
                             </span>
                             <select
                               value={timestampField}
                               onChange={(event) => setTimestampField(event.target.value)}
                               className="field-control mt-2 w-full"
                             >
-                              <option value="">Use sync time</option>
+                              <option value="">No record date (value-only card)</option>
                               {fields.map((field) => (
                                 <option key={field.path} value={field.path}>
                                   {field.path}
@@ -1395,9 +1403,6 @@ export function MetricBuilder({
                             type="button"
                             onClick={() => {
                               setCalculation(value);
-                              if (value === "percentage" && visualization === "trend") {
-                                setVisualization("kpi");
-                              }
                             }}
                             className={`calculation-option ${calculation === value ? "source-option-active" : ""}`}
                           >
@@ -1756,13 +1761,32 @@ export function MetricBuilder({
                       Categories become dashboard filters and keep related metrics together.
                     </span>
                   </label>
-                  <div className="mt-6">
+                  <label className="mt-4 block">
+                    <span className="field-label">KPI goal (optional)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={goalTarget}
+                      onChange={(event) => setGoalTarget(event.target.value)}
+                      className="field-control mt-2 w-full"
+                      placeholder={
+                        calculation === "percentage" || sourceMode === "combine"
+                          ? "e.g. 35%"
+                          : "e.g. 500"
+                      }
+                    />
+                    <span className="mt-2 block text-xs text-[var(--muted)]">
+                      The live card will show progress against this target.
+                    </span>
+                  </label>
+                  <div className="mt-6 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-4">
                     <div className="flex items-end justify-between gap-4">
                       <div>
-                        <span className="field-label">Dashboard display</span>
+                        <span className="field-label">Dashboard card</span>
                         <p className="mt-1 text-xs text-[var(--muted)]">
-                          This is the default. You can still choose metrics directly on the
-                          dashboard.
+                          Every metric uses a KPI card. A chart appears automatically when a real
+                          record-date column is configured.
                         </p>
                       </div>
                       <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
@@ -1774,32 +1798,6 @@ export function MetricBuilder({
                           className="h-8 w-10 cursor-pointer rounded border border-[var(--line)] bg-transparent"
                         />
                       </label>
-                    </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {(
-                        [
-                          ["kpi", "KPI card", "A focused live number"],
-                          ["trend", "Trend graph", "A daily line or bar chart"],
-                        ] as const
-                      ).map(([display, label, detail]) => {
-                        const isRatioMetric =
-                          sourceMode === "combine" || calculation === "percentage";
-                        const disabled = display !== "kpi" && isRatioMetric;
-                        return (
-                          <button
-                            key={display}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => setVisualization(display)}
-                            className={`visualization-option ${visualization === display ? "visualization-option-active" : ""}`}
-                          >
-                            <span className="text-sm font-semibold">{label}</span>
-                            <span className="mt-1 block text-xs text-[var(--muted)]">
-                              {disabled ? "Ratios only support KPI cards" : detail}
-                            </span>
-                          </button>
-                        );
-                      })}
                     </div>
                   </div>
                   <div className="mt-6 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
@@ -1828,7 +1826,15 @@ export function MetricBuilder({
                       ],
                       [
                         "Dashboard",
-                        visualization === "trend" ? "Preferred trend metric" : "KPI card",
+                        dashboardHasTimeline
+                          ? `KPI card · ${timestampField ? `timeline from ${timestampField}` : "native timeline"}`
+                          : "KPI card · value only",
+                      ],
+                      [
+                        "KPI goal",
+                        goalTarget.trim()
+                          ? `${goalTarget}${calculation === "percentage" || sourceMode === "combine" ? "%" : ""}`
+                          : "No goal set",
                       ],
                       [
                         "Live result",

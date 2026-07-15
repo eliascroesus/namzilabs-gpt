@@ -51,7 +51,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }
   return (
     <div className="app-shell-layout min-h-screen">
-      {navigationPending ? <div className="app-route-progress" aria-hidden="true" /> : null}
       <aside className="app-sidebar">
         <Link href="/overview" className="app-sidebar-brand" aria-label="Namzilabs overview">
           <span className="app-sidebar-wordmark" aria-hidden="true">
