@@ -69,6 +69,7 @@ export type SubscriptionResult = {
 export type IncomingWebhook = {
   rawBody: string;
   headers: Headers;
+  url?: string;
 };
 
 export type ParsedWebhookEvent = {

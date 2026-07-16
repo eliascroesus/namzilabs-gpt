@@ -13,6 +13,28 @@ Provider credentials are never public browser variables. Only the OAuth applicat
 below belong in Vercel; customer API keys are entered in the Namzi integration screen and encrypted
 in Neon.
 
+## Universal catch hooks
+
+Use **Integrations → Webhook** when an app can send webhooks but does not yet have a dedicated Namzi
+connector. Copy the complete URL shown on the connection page, including
+`/api/webhooks/<connection-id>`. Do not enter only `https://namzilabs.co`.
+
+Catch hooks intentionally behave like Zapier's Catch Hook: the unguessable URL is the credential,
+normal provider POST/PUT requests receive a fast HTTP 200 response, and the newest captured requests
+become reusable metric-builder test records. JSON arrays are split into records; JSON, form-encoded,
+XML and text bodies are retained; nested JSON fields are exposed as dot paths such as
+`payload.booking.startTime`.
+
+The optional signing secret is for senders that can add `x-namzi-webhook-secret` or
+`x-namzi-signature` headers. Do not paste it into a provider's unrelated signing-secret field and
+expect a Namzi header—the dedicated provider connector validates that provider's native signature.
+For Whop, Stripe, Cal.com, Calendly, Brevo, Close and Instantly, prefer the named integration tile so
+Namzi can create the subscription and store the correct provider signing key automatically.
+
+On the connection page, use **Send test record** first. It must appear immediately under **Recent
+events**. Then trigger one real event in the sending app and use **View captured fields** or **Find
+new records** in the metric builder to verify the exact payload.
+
 ## Required Vercel variables
 
 Use **Vercel → Project → Settings → Environment Variables** and add these to Production (and Preview

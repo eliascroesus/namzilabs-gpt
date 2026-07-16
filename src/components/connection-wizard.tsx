@@ -46,7 +46,8 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
                   eventIdPath: "id",
                   eventTypePath: "type",
                   eventTimePath: "createdAt",
-                  requireTimestamp: true,
+                  authenticationMode: "catch-url",
+                  requireTimestamp: false,
                   webhookToleranceSeconds: 300,
                 }
               : manifest.id === "whop"
@@ -151,7 +152,9 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
               </div>
               <p className="mt-4 text-xs text-[var(--muted)]">Endpoint</p>
               <code className="mt-1 block break-all text-xs">{webhook.webhookUrl}</code>
-              <p className="mt-4 text-xs text-[var(--muted)]">Signing secret — copy it now</p>
+              <p className="mt-4 text-xs text-[var(--muted)]">
+                Optional signing secret — only needed when the sender supports custom Namzi headers
+              </p>
               <code className="mt-1 block break-all text-xs">{webhook.webhookSecret}</code>
               <Button className="mt-5" onClick={() => router.push(`/integrations/${webhook.id}`)}>
                 Open connection <ArrowRight size={16} />

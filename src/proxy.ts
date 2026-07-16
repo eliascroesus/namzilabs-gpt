@@ -25,7 +25,9 @@ function isPublicApi(pathname: string): boolean {
     pathname === "/api/auth/logout" ||
     pathname === "/api/inngest" ||
     pathname.startsWith("/api/webhooks/") ||
-    /^\/api\/integrations\/(google|calendly|close)\/callback$/.test(pathname)
+    /^\/api\/integrations\/(google|google-calendar|calendly|cal-com|close)\/callback$/.test(
+      pathname,
+    )
   );
 }
 

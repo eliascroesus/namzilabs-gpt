@@ -64,7 +64,8 @@ export async function POST(request: Request) {
         configuration:
           input.provider === "webhook"
             ? {
-                requireTimestamp: true,
+                authenticationMode: "catch-url",
+                requireTimestamp: false,
                 webhookToleranceSeconds: 300,
                 ...input.configuration,
               }

@@ -4,8 +4,10 @@ import Link from "next/link";
 import { getConnector } from "@/connectors/registry";
 import { getDb } from "@/db/client";
 import { ConnectionActions } from "@/components/connection-actions";
+import { WebhookCatchCard } from "@/components/webhook-catch-card";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { asProviderId, connectionDetails } from "@/server/connections/service";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,11 @@ function dateLabel(value: Date | null) {
   return value
     ? value.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })
     : "Not yet";
+}
+
+function payloadPreview(payload: Record<string, unknown>): string {
+  const value = JSON.stringify(payload, null, 2);
+  return value.length > 12_000 ? `${value.slice(0, 12_000)}\n…` : value;
 }
 
 export default async function ConnectionPage({
@@ -69,6 +76,10 @@ export default async function ConnectionPage({
         ))}
       </div>
 
+      {connection.provider === "webhook" ? (
+        <WebhookCatchCard url={`${env().APP_URL}/api/webhooks/${connection.id}`} />
+      ) : null}
+
       {connection.provider === "google-sheets" && connection.status === "active" ? (
         <section className="shell-card mt-6 flex flex-col justify-between gap-5 p-5 sm:flex-row sm:items-center">
           <div className="flex items-start gap-3">
@@ -102,19 +113,31 @@ export default async function ConnectionPage({
           <div className="mt-4 divide-y divide-[var(--line)]">
             {recentEvents.length ? (
               recentEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center justify-between gap-4 py-3 text-sm"
-                >
-                  <div>
-                    <div className="font-semibold">{event.eventType}</div>
-                    <div className="mt-1 text-xs text-[var(--muted)]">
-                      {dateLabel(event.receivedAt)}
+                <div key={event.id} className="py-3 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="font-semibold">{event.eventType}</div>
+                      <div className="mt-1 text-xs text-[var(--muted)]">
+                        {dateLabel(event.receivedAt)}
+                      </div>
                     </div>
+                    <span className="rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs capitalize">
+                      {event.status}
+                    </span>
                   </div>
-                  <span className="rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs capitalize">
-                    {event.status}
-                  </span>
+                  <details className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-[var(--muted)]">
+                      View captured fields
+                    </summary>
+                    <pre className="max-h-72 overflow-auto border-t border-[var(--line)] p-3 text-[11px] leading-5">
+                      {payloadPreview(event.payload)}
+                    </pre>
+                  </details>
+                  {event.failureMessage ? (
+                    <p className="mt-2 text-xs text-[var(--danger)]">
+                      {event.failureCode}: {event.failureMessage}
+                    </p>
+                  ) : null}
                 </div>
               ))
             ) : (

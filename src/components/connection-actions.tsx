@@ -68,7 +68,7 @@ export function ConnectionActions({
   return (
     <div>
       <div className="flex gap-2">
-        {["google-sheets", "calendly", "close"].includes(provider) &&
+        {["google-sheets", "google-calendar", "calendly", "cal-com", "close"].includes(provider) &&
         ["paused", "revoked", "error"].includes(status) ? (
           <Link
             href={`/api/integrations/${provider}/authorize?connectionId=${encodeURIComponent(connectionId)}`}
@@ -77,9 +77,11 @@ export function ConnectionActions({
             Reconnect
           </Link>
         ) : null}
-        <Button variant="secondary" onClick={reconcile} disabled={working}>
-          <RefreshCw size={15} /> Force sync
-        </Button>
+        {provider !== "webhook" ? (
+          <Button variant="secondary" onClick={reconcile} disabled={working}>
+            <RefreshCw size={15} /> Force sync
+          </Button>
+        ) : null}
         <Button variant="secondary" onClick={disconnect} disabled={working}>
           <Trash2 size={15} /> Delete integration
         </Button>

@@ -71,6 +71,9 @@ export async function connectionDetails(
         eventType: rawEvents.eventType,
         receivedAt: rawEvents.receivedAt,
         status: rawEvents.status,
+        payload: rawEvents.payload,
+        failureCode: rawEvents.failureCode,
+        failureMessage: rawEvents.failureMessage,
       })
       .from(rawEvents)
       .where(

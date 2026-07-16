@@ -46,6 +46,20 @@ describe("prototype password proxy", () => {
         ),
       ).status,
     ).toBe(200);
+    expect(
+      proxy(
+        new NextRequest(
+          "http://localhost:3000/api/integrations/google-calendar/callback?code=test&state=test",
+        ),
+      ).status,
+    ).toBe(200);
+    expect(
+      proxy(
+        new NextRequest(
+          "http://localhost:3000/api/integrations/cal-com/callback?code=test&state=test",
+        ),
+      ).status,
+    ).toBe(200);
     expect(proxy(new NextRequest("http://localhost:3000/api/webhooks/connection-id")).status).toBe(
       200,
     );

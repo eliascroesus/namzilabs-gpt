@@ -51,11 +51,53 @@ export function webhookJson(webhook: IncomingWebhook): Record<string, unknown> {
   }
 }
 
+/**
+ * Store nested provider fields as addressable dot paths. Raw webhook payloads remain
+ * unchanged in raw_events; this representation is for source records and the metric
+ * builder, where PostgreSQL can query a stable top-level JSON key such as
+ * `payload.booking.startTime`.
+ */
+export function flattenDataRecord(
+  record: Record<string, unknown>,
+  options: { maxDepth?: number; maxFields?: number } = {},
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  const maxDepth = options.maxDepth ?? 8;
+  const maxFields = options.maxFields ?? 500;
+
+  function visit(value: unknown, path: string, depth: number): void {
+    if (!path || Object.keys(output).length >= maxFields || path.length > 235) return;
+    if (value === null || typeof value !== "object") {
+      output[path] = value;
+      return;
+    }
+    if (depth >= maxDepth) {
+      output[path] = value;
+      return;
+    }
+    if (Array.isArray(value)) {
+      output[path] = value;
+      value.slice(0, 25).forEach((item, index) => visit(item, `${path}.${index}`, depth + 1));
+      return;
+    }
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) output[path] = value;
+    for (const [key, child] of entries) {
+      visit(child, `${path}.${key}`, depth + 1);
+    }
+  }
+
+  for (const [key, value] of Object.entries(record)) visit(value, key, 0);
+  return output;
+}
+
 export function defaultNormalizedRecord(
   record: Record<string, unknown>,
   resourceType: string,
   eventType?: string,
 ): NormalizedRecord {
+  const flattened = flattenDataRecord(record);
+  const queryableRecord = { ...record, ...flattened };
   const externalId = String(
     record.id ?? record.uuid ?? record.uri ?? sha256(JSON.stringify(record)),
   );
@@ -76,7 +118,7 @@ export function defaultNormalizedRecord(
     sourceUpdatedAt: timestamp,
     occurredAt: timestamp,
     isDeleted: eventType?.includes("deleted") === true || eventType?.includes("canceled") === true,
-    data: record,
+    data: queryableRecord,
     promoted: {
       displayName:
         typeof record.name === "string"
@@ -98,7 +140,7 @@ export function defaultNormalizedRecord(
             type: eventType,
             externalId: `${eventType}:${externalId}`,
             occurredAt: timestamp,
-            dimensions: record,
+            dimensions: queryableRecord,
             promoted: {
               status: typeof record.status === "string" ? record.status : undefined,
               channel: typeof record.channel === "string" ? record.channel : undefined,

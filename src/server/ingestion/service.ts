@@ -47,9 +47,18 @@ export function isIncomingStale(
 export async function ingestWebhook(
   db: Database,
   input: { connectionId: string; request: IncomingWebhook; appUrl: string; startedAt?: number },
-): Promise<{ accepted: number; duplicates: number; eventIds: string[] }> {
+): Promise<{
+  accepted: number;
+  duplicates: number;
+  processed: number;
+  pending: number;
+  eventIds: string[];
+}> {
   const connection = await getPublicConnection(db, input.connectionId);
-  const maxBodyBytes = Number(connection.configuration.maxBodyBytes ?? 1_048_576);
+  const configuredMaxBodyBytes = Number(connection.configuration.maxBodyBytes ?? 4_000_000);
+  const maxBodyBytes = Number.isFinite(configuredMaxBodyBytes)
+    ? Math.min(4_000_000, Math.max(1_024, configuredMaxBodyBytes))
+    : 4_000_000;
   if (Buffer.byteLength(input.request.rawBody, "utf8") > maxBodyBytes) {
     throw new AppError("payload_too_large", "Webhook payload is too large.", 413);
   }
@@ -76,9 +85,35 @@ export async function ingestWebhook(
   );
   const connector = getConnector(asProvider(connection.provider));
   if (!(await connector.verifyWebhook(context, input.request))) {
+    await db
+      .update(connections)
+      .set({
+        freshness: "delayed",
+        lastErrorCode: "invalid_webhook_signature",
+        lastErrorMessage:
+          connection.provider === "webhook"
+            ? "The catch hook received an invalid Namzi signing header. Remove the custom header or copy the correct optional signing secret."
+            : "The provider webhook signature could not be verified.",
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connection.id));
     throw new AppError("invalid_webhook_signature", "Webhook authentication failed.", 401);
   }
-  const parsed = await connector.parseWebhook(context, input.request);
+  let parsed: ParsedWebhookEvent[];
+  try {
+    parsed = await connector.parseWebhook(context, input.request);
+  } catch (error) {
+    await db
+      .update(connections)
+      .set({
+        freshness: "delayed",
+        lastErrorCode: "invalid_webhook_payload",
+        lastErrorMessage: error instanceof Error ? error.message.slice(0, 300) : "Invalid payload.",
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connection.id));
+    throw error;
+  }
   if (parsed.length === 0)
     throw new AppError("empty_webhook", "The webhook contained no events.", 400);
 
@@ -119,7 +154,44 @@ export async function ingestWebhook(
         payload: { rawEventId: eventId },
       });
     }
+    await tx
+      .update(connections)
+      .set({
+        lastEventAt: new Date(),
+        freshness: "live",
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, connection.id));
   });
+
+  // Persist first, then normalize immediately so the event is visible without relying on
+  // a background scheduler. The durable outbox remains the retry path if this fast path fails.
+  let processed = 0;
+  const configuredFastPath = Number(connection.configuration.fastPathRecords ?? 10);
+  const fastPathLimit = Number.isFinite(configuredFastPath)
+    ? Math.min(50, Math.max(1, configuredFastPath))
+    : 10;
+  for (const eventId of eventIds.slice(0, fastPathLimit)) {
+    try {
+      await processRawEvent(db, eventId);
+      processed += 1;
+    } catch (error) {
+      await db
+        .update(connections)
+        .set({
+          freshness: "delayed",
+          lastErrorCode: "webhook_processing_delayed",
+          lastErrorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 300)
+              : "The event was saved and queued for processing.",
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, connection.id));
+    }
+  }
   await recordMeasurementSafely(db, {
     organizationId: connection.organizationId,
     connectionId: connection.id,
@@ -128,7 +200,13 @@ export async function ingestWebhook(
     unit: "ms",
     safeDimensions: { provider: connection.provider, duplicate: eventIds.length === 0 },
   });
-  return { accepted: eventIds.length, duplicates, eventIds };
+  return {
+    accepted: eventIds.length,
+    duplicates,
+    processed,
+    pending: Math.max(0, eventIds.length - processed),
+    eventIds,
+  };
 }
 
 function asProvider(provider: string) {
