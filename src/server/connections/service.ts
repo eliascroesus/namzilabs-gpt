@@ -101,6 +101,11 @@ export function asProviderId(provider: string): ProviderId {
     "close",
     "instantly",
     "brevo",
+    "cal-com",
+    "google-calendar",
+    "stripe",
+    "whop",
+    "propal",
   ];
   if (!allowed.includes(provider as ProviderId))
     throw new AppError("connector_not_found", "Connector not found.", 404);

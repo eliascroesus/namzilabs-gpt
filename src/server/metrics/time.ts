@@ -1,7 +1,13 @@
 import { AppError } from "@/lib/errors";
 
 export type DatePreset =
-  "today" | "yesterday" | "last_7_days" | "last_30_days" | "this_month" | "this_quarter";
+  | "today"
+  | "yesterday"
+  | "last_7_days"
+  | "last_30_days"
+  | "this_month"
+  | "this_quarter"
+  | "all_time";
 
 function partsAt(date: Date, timezone: string): Record<string, number> {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -75,6 +81,11 @@ export function dateRangeForPreset(
     startDay = new Date(endDay.getTime() - (preset === "last_7_days" ? 7 : 30) * 86_400_000);
   } else if (preset === "this_month") {
     startDay = new Date(Date.UTC(current.year!, current.month! - 1, 1));
+  } else if (preset === "all_time") {
+    // Callers with tenant data should replace this lower bound with their first
+    // persisted record. Keeping a deterministic fallback makes the preset safe
+    // for APIs and empty workspaces without pretending there is older data.
+    startDay = new Date(Date.UTC(2000, 0, 1));
   } else {
     startDay = new Date(Date.UTC(current.year!, Math.floor((current.month! - 1) / 3) * 3, 1));
   }

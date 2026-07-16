@@ -22,7 +22,7 @@ const methods = [
 ] as const;
 
 describe("connector contract", () => {
-  it("registers all Phase 1 connectors exactly once", () => {
+  it("registers every supported connector exactly once", () => {
     expect(connectors.map((connector) => connector.manifest.id)).toEqual([
       "webhook",
       "google-sheets",
@@ -30,6 +30,11 @@ describe("connector contract", () => {
       "close",
       "instantly",
       "brevo",
+      "cal-com",
+      "google-calendar",
+      "stripe",
+      "whop",
+      "propal",
     ]);
     expect(new Set(connectors.map((connector) => connector.manifest.id)).size).toBe(
       connectors.length,
@@ -68,7 +73,9 @@ describe("connector contract", () => {
       };
       const normalized = await connector.normalizeRecord(context, record, "fixture.changed");
       expect(normalized.externalId).not.toBe("");
-      expect(normalized.data).toEqual(record);
+      expect(normalized.data).toMatchObject(
+        id === "cal-com" ? { ...record, id: record.uid } : record,
+      );
     },
   );
 });

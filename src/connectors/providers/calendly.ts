@@ -12,7 +12,13 @@ import { jsonObjectSchema, type Connector } from "@/connectors/types";
 import { constantTimeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
 
-const currentUserSchema = z.object({ resource: z.object({ uri: z.string(), name: z.string() }) });
+const currentUserSchema = z.object({
+  resource: z.object({
+    uri: z.string(),
+    name: z.string(),
+    current_organization: z.string(),
+  }),
+});
 const collectionSchema = z.object({
   collection: z.array(jsonObjectSchema).default([]),
   pagination: z.object({ next_page_token: z.string().nullable().optional() }).optional(),
@@ -21,6 +27,19 @@ const webhookSchema = z.object({ resource: z.object({ uri: z.string() }) });
 
 function token(context: Parameters<Connector["validateCredentials"]>[0]): string {
   return credential(context, "accessToken");
+}
+
+async function organizationUri(
+  context: Parameters<Connector["validateCredentials"]>[0],
+): Promise<string> {
+  const configured = String(context.configuration.organizationUri ?? "").trim();
+  if (configured) return configured;
+  const user = await providerFetch(
+    "https://api.calendly.com/users/me",
+    { headers: bearerHeaders(token(context)) },
+    currentUserSchema,
+  );
+  return user.resource.current_organization;
 }
 
 export const calendlyConnector: Connector = {
@@ -32,7 +51,7 @@ export const calendlyConnector: Connector = {
     authType: "oauth2",
     apiVersion: "v2",
     mappingVersion: 1,
-    resources: ["organization", "user", "scheduled_event", "invitee", "event_type"],
+    resources: ["scheduled_event"],
     events: ["meeting.booked", "meeting.canceled", "meeting.rescheduled", "meeting.no_show"],
     capabilities: ["oauth", "webhooks", "polling", "backfill", "sample"],
   },
@@ -76,7 +95,7 @@ export const calendlyConnector: Connector = {
   },
 
   async fetchSample(context, limit) {
-    const organization = encodeURIComponent(String(context.configuration.organizationUri ?? ""));
+    const organization = encodeURIComponent(await organizationUri(context));
     const result = await providerFetch(
       `https://api.calendly.com/scheduled_events?organization=${organization}&count=${limit}&sort=start_time:desc`,
       { headers: bearerHeaders(token(context)) },
@@ -86,7 +105,7 @@ export const calendlyConnector: Connector = {
   },
 
   async startBackfill(context, cursor) {
-    const organization = encodeURIComponent(String(context.configuration.organizationUri ?? ""));
+    const organization = encodeURIComponent(await organizationUri(context));
     const page = cursor ? `&page_token=${encodeURIComponent(cursor)}` : "";
     const result = await providerFetch(
       `https://api.calendly.com/scheduled_events?organization=${organization}&count=100${page}`,
@@ -101,6 +120,7 @@ export const calendlyConnector: Connector = {
   },
 
   async createSubscription(context) {
+    const organization = await organizationUri(context);
     const result = await providerFetch(
       "https://api.calendly.com/webhook_subscriptions",
       {
@@ -109,11 +129,12 @@ export const calendlyConnector: Connector = {
         body: JSON.stringify({
           url: context.callbackUrl,
           events: ["invitee.created", "invitee.canceled"],
-          organization: context.configuration.organizationUri,
+          organization,
           scope: "organization",
         }),
       },
       webhookSchema,
+      1,
     );
     return { externalId: result.resource.uri };
   },

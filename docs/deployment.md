@@ -70,9 +70,17 @@ INNGEST_SERVE_ORIGIN=https://namzilabs.co
 GOOGLE_CLIENT_ID=<Google OAuth web client ID>
 GOOGLE_CLIENT_SECRET=<Google OAuth web client secret>
 GOOGLE_REDIRECT_URI=https://namzilabs.co/api/integrations/google/callback
+CALENDLY_CLIENT_ID=<Calendly OAuth client ID>
+CALENDLY_CLIENT_SECRET=<Calendly OAuth client secret>
+CALENDLY_WEBHOOK_SIGNING_KEY=<Calendly webhook signing key>
+CALCOM_CLIENT_ID=<Cal.com OAuth client ID>
+CALCOM_CLIENT_SECRET=<Cal.com OAuth client secret>
+CLOSE_CLIENT_ID=<Close OAuth client ID>
+CLOSE_CLIENT_SECRET=<Close OAuth client secret>
 ```
 
-Optional provider values are listed in `.env.example`.
+API-key connectors are entered in the Namzi integration wizard and encrypted in Neon; do not put
+customer API keys in Vercel. The complete provider setup is in `docs/integrations.md`.
 
 Keep `DATABASE_DIRECT_URL` only in the local/CI migration environment. Do not expose the direct migration credential to Vercel Functions.
 
@@ -93,8 +101,9 @@ In Google Cloud Console → **Google Auth Platform**:
 3. **Data Access**: enable the Drive metadata read-only and Google Sheets read-only scopes used by the connector.
 4. Add `namzilabs.co` under **Authorized domains**. Verify the domain through Google Search Console using the same Google account that is an owner/editor of the Cloud project.
 5. **Clients** → your Web application: add `https://namzilabs.co` as an authorized JavaScript origin and add the exact redirect URI `https://namzilabs.co/api/integrations/google/callback`.
-6. The redirect URI is exact: scheme, host, path and trailing slash must match. This project uses no trailing slash.
-7. After the deployed pages work, complete Branding verification, publish branding, then request data-access verification if Google requires it for the selected scopes.
+6. Enable the Google Calendar API and add the second exact redirect URI `https://namzilabs.co/api/integrations/google-calendar/callback` before connecting Calendar.
+7. The redirect URI is exact: scheme, host, path and trailing slash must match. This project uses no trailing slash.
+8. After the deployed pages work, complete Branding verification, publish branding, then request data-access verification if Google requires it for the selected scopes.
 
 ## 7. Connect Inngest
 

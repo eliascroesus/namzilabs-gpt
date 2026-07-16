@@ -13,11 +13,11 @@ const refreshResponseSchema = z.object({
   expires_in: z.number().optional(),
 });
 
-export type OAuthProvider = "google-sheets" | "calendly" | "close";
+export type OAuthProvider = "google-sheets" | "google-calendar" | "calendly" | "cal-com" | "close";
 
 export function buildRefreshRequest(provider: OAuthProvider, refreshToken: string) {
   const config = env();
-  if (provider === "google-sheets") {
+  if (provider === "google-sheets" || provider === "google-calendar") {
     return {
       url: "https://oauth2.googleapis.com/token",
       body: new URLSearchParams({
@@ -39,6 +39,17 @@ export function buildRefreshRequest(provider: OAuthProvider, refreshToken: strin
       }),
     };
   }
+  if (provider === "cal-com") {
+    return {
+      url: "https://api.cal.com/v2/auth/oauth2/token",
+      body: new URLSearchParams({
+        client_id: config.CALCOM_CLIENT_ID ?? "",
+        client_secret: config.CALCOM_CLIENT_SECRET ?? "",
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }),
+    };
+  }
   return {
     url: "https://api.close.com/oauth2/token/",
     body: new URLSearchParams({
@@ -54,7 +65,13 @@ export async function ensureFreshAccessToken(
   db: Database,
   connection: typeof connections.$inferSelect,
 ): Promise<void> {
-  if (!(["google-sheets", "calendly", "close"] as string[]).includes(connection.provider)) return;
+  if (
+    !(["google-sheets", "google-calendar", "calendly", "cal-com", "close"] as string[]).includes(
+      connection.provider,
+    )
+  ) {
+    return;
+  }
   const [accessMetadata] = await db
     .select({ expiresAt: encryptedCredentials.expiresAt })
     .from(encryptedCredentials)

@@ -32,7 +32,7 @@ export const instantlyConnector: Connector = {
     authType: "api-key",
     apiVersion: "v2",
     mappingVersion: 1,
-    resources: ["workspace", "campaign", "lead", "email"],
+    resources: ["lead", "email"],
     events: [
       "email.sent",
       "email.opened",
@@ -111,13 +111,14 @@ export const instantlyConnector: Connector = {
         body: JSON.stringify({
           name: `Namzi ${context.connectionId}`,
           target_hook_url: context.callbackUrl,
-          event_type: "all",
+          event_type: "all_events",
           headers: { "x-namzi-webhook-secret": secret },
         }),
       },
       webhookSchema,
+      1,
     );
-    return { externalId: result.id };
+    return { externalId: result.id, credentialUpdates: { webhookSecret: secret } };
   },
 
   async renewSubscription(_context, subscription) {

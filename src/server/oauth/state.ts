@@ -9,7 +9,7 @@ import { AppError } from "@/lib/errors";
 const stateSchema = z.object({
   state: z.string().min(32),
   verifier: z.string().min(43),
-  provider: z.enum(["google-sheets", "calendly", "close"]),
+  provider: z.enum(["google-sheets", "google-calendar", "calendly", "cal-com", "close"]),
   organizationId: z.uuid(),
   connectionId: z.uuid(),
   expiresAt: z.number().int(),
@@ -44,7 +44,10 @@ function invalidOAuthState(): AppError {
 }
 
 export function createOAuthState(
-  provider: Extract<ProviderId, "google-sheets" | "calendly" | "close">,
+  provider: Extract<
+    ProviderId,
+    "google-sheets" | "google-calendar" | "calendly" | "cal-com" | "close"
+  >,
   organizationId: string,
   connectionId: string,
 ): OAuthState {

@@ -8,7 +8,10 @@ import { openOAuthState } from "@/server/oauth/state";
 
 export async function oauthCallback(
   request: Request,
-  provider: Extract<ProviderId, "google-sheets" | "calendly" | "close">,
+  provider: Extract<
+    ProviderId,
+    "google-sheets" | "google-calendar" | "calendly" | "cal-com" | "close"
+  >,
 ) {
   const url = new URL(request.url);
   const error = url.searchParams.get("error");

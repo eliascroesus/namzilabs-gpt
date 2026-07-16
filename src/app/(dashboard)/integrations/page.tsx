@@ -22,11 +22,13 @@ export default async function IntegrationsPage() {
     .where(eq(connections.organizationId, tenant.organizationId))
     .orderBy(desc(connections.updatedAt));
   const available = (provider: ProviderId) => {
-    if (provider === "google-sheets")
+    if (provider === "google-sheets" || provider === "google-calendar")
       return Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET);
     if (provider === "calendly")
       return Boolean(config.CALENDLY_CLIENT_ID && config.CALENDLY_CLIENT_SECRET);
     if (provider === "close") return Boolean(config.CLOSE_CLIENT_ID && config.CLOSE_CLIENT_SECRET);
+    if (provider === "cal-com")
+      return Boolean(config.CALCOM_CLIENT_ID && config.CALCOM_CLIENT_SECRET);
     return true;
   };
 

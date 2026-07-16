@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) {
   const router = useRouter();
   const [apiKey, setApiKey] = useState("");
+  const [companyId, setCompanyId] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [webhook, setWebhook] = useState<{
@@ -48,7 +49,9 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
                   requireTimestamp: true,
                   webhookToleranceSeconds: 300,
                 }
-              : {},
+              : manifest.id === "whop"
+                ? { companyId: companyId.trim() }
+                : {},
         }),
       });
       const result = (await response.json()) as {
@@ -105,23 +108,40 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
           </p>
 
           {needsApiKey ? (
-            <label className="mt-7 block text-sm font-medium">
-              API key
-              <div className="relative mt-2">
-                <KeyRound
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-                />
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="Paste your scoped API key"
-                  className="field-control w-full pl-10"
-                  autoComplete="off"
-                />
-              </div>
-            </label>
+            <div className="mt-7 grid gap-4">
+              <label className="block text-sm font-medium">
+                API key
+                <div className="relative mt-2">
+                  <KeyRound
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+                  />
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="Paste your scoped API key"
+                    className="field-control w-full pl-10"
+                    autoComplete="off"
+                  />
+                </div>
+              </label>
+              {manifest.id === "whop" ? (
+                <label className="block text-sm font-medium">
+                  Company ID
+                  <input
+                    value={companyId}
+                    onChange={(event) => setCompanyId(event.target.value)}
+                    placeholder="biz_xxxxxxxxxxxxxx"
+                    className="field-control mt-2 w-full"
+                    autoComplete="off"
+                  />
+                  <span className="mt-2 block text-xs font-normal text-[var(--muted)]">
+                    Copy the <code>biz_…</code> ID from your Whop company dashboard.
+                  </span>
+                </label>
+              ) : null}
+            </div>
           ) : null}
 
           {webhook ? (
@@ -141,7 +161,11 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
             <Button
               className="mt-7"
               onClick={createConnection}
-              disabled={connecting || (needsApiKey && apiKey.length < 8)}
+              disabled={
+                connecting ||
+                (needsApiKey && apiKey.length < 8) ||
+                (manifest.id === "whop" && !companyId.trim().startsWith("biz_"))
+              }
             >
               {manifest.authType === "oauth2" ? <ExternalLink size={16} /> : <Check size={16} />}
               {connecting
@@ -161,7 +185,7 @@ export function ConnectionWizard({ manifest }: { manifest: ConnectorManifest }) 
 
         <aside className="space-y-3">
           {[
-            [LockKeyhole, "Read-only", "Namzi reads source data and never edits Google Sheets."],
+            [LockKeyhole, "Read-only", "Namzi requests read access and never edits source data."],
             [Copy, "One account", "Reuse this account across every metric and dashboard."],
             [Check, "Test before save", "Preview real recent records before publishing a metric."],
           ].map(([Icon, title, detail]) => {

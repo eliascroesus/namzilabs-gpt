@@ -1,0 +1,14 @@
+{
+  "id": "mem_fixture",
+  "status": "active",
+  "created_at": "2026-07-15T12:00:00.000Z",
+  "user": {
+    "id": "user_fixture",
+    "name": "Fixture Person",
+    "email": "fixture@example.test"
+  },
+  "product": {
+    "id": "prod_fixture",
+    "title": "Fixture product"
+  }
+}

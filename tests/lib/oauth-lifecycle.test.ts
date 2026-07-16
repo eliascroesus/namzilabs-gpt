@@ -25,12 +25,16 @@ describe("OAuth lifecycle", () => {
     process.env.CALENDLY_CLIENT_SECRET = "calendly-secret";
     process.env.CLOSE_CLIENT_ID = "close-client";
     process.env.CLOSE_CLIENT_SECRET = "close-secret";
+    process.env.CALCOM_CLIENT_ID = "cal-client";
+    process.env.CALCOM_CLIENT_SECRET = "cal-secret";
     resetEnvForTests();
   });
 
   it.each([
     ["google-sheets", "https://oauth2.googleapis.com/token"],
+    ["google-calendar", "https://oauth2.googleapis.com/token"],
     ["calendly", "https://auth.calendly.com/oauth/token"],
+    ["cal-com", "https://api.cal.com/v2/auth/oauth2/token"],
     ["close", "https://api.close.com/oauth2/token/"],
   ] as const)("builds a scoped %s refresh request", (provider, expectedUrl) => {
     const request = buildRefreshRequest(provider, "rotating-refresh-token");

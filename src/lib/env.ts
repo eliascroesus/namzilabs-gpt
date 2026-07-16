@@ -30,6 +30,8 @@ const environmentSchema = z.object({
   CALENDLY_WEBHOOK_SIGNING_KEY: optionalNonEmptyString,
   CLOSE_CLIENT_ID: optionalNonEmptyString,
   CLOSE_CLIENT_SECRET: optionalNonEmptyString,
+  CALCOM_CLIENT_ID: optionalNonEmptyString,
+  CALCOM_CLIENT_SECRET: optionalNonEmptyString,
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;

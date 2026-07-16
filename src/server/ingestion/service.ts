@@ -146,7 +146,10 @@ export async function processRawEvent(db: Database, rawEventId: string): Promise
   if (!connection) throw new AppError("connection_not_found", "Connection not found.", 404);
   const context = await connectorContext(db, connection, "");
   const connector = getConnector(asProvider(connection.provider));
-  if (connection.provider === "google-sheets" && event.eventType === "spreadsheet.changed") {
+  const reconciliationNotification =
+    (connection.provider === "google-sheets" && event.eventType === "spreadsheet.changed") ||
+    (connection.provider === "google-calendar" && event.eventType === "calendar.changed");
+  if (reconciliationNotification) {
     await db.transaction(async (tx) => {
       await tx.insert(outboxEvents).values({
         organizationId: event.organizationId,

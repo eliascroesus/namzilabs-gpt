@@ -1,0 +1,8 @@
+{
+  "id": "pi_fixture",
+  "object": "payment_intent",
+  "created": 1784116800,
+  "amount_received": 12900,
+  "currency": "usd",
+  "status": "succeeded"
+}

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNull, lt, min } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 
@@ -35,6 +35,7 @@ function rangeLabel(range: DatePreset): string {
   if (range === "today") return "Today’s";
   if (range === "yesterday") return "Yesterday’s";
   if (range === "last_7_days") return "7-day";
+  if (range === "all_time") return "All-time";
   return "30-day";
 }
 
@@ -89,6 +90,7 @@ export async function AnalyticsOverview({
     [dashboardRow],
     connectionRows,
     totalRows,
+    [firstRecord],
     deadLetterRows,
     metricRows,
     resourceRows,
@@ -117,6 +119,15 @@ export async function AnalyticsOverview({
       .where(eq(connections.organizationId, tenant.organizationId)),
     db
       .select({ value: count() })
+      .from(sourceRecords)
+      .where(
+        and(
+          eq(sourceRecords.organizationId, tenant.organizationId),
+          eq(sourceRecords.isDeleted, false),
+        ),
+      ),
+    db
+      .select({ value: min(sourceRecords.occurredAt) })
       .from(sourceRecords)
       .where(
         and(
@@ -158,14 +169,22 @@ export async function AnalyticsOverview({
 
   const effectiveRange = range ?? "last_30_days";
   const timezone = organization?.timezone ?? "UTC";
-  const window = dateRangeForPreset(effectiveRange, timezone);
-  const seriesGrain: "hour" | "day" =
-    effectiveRange === "today" || effectiveRange === "yesterday" ? "hour" : "day";
+  const presetWindow = dateRangeForPreset(effectiveRange, timezone);
+  const window =
+    effectiveRange === "all_time" && firstRecord?.value
+      ? { start: new Date(firstRecord.value), end: presetWindow.end }
+      : presetWindow;
+  const windowDuration = window.end.getTime() - window.start.getTime();
+  const seriesGrain: "hour" | "day" | "week" | "month" =
+    effectiveRange === "today" || effectiveRange === "yesterday"
+      ? "hour"
+      : effectiveRange !== "all_time" || windowDuration <= 90 * 86_400_000
+        ? "day"
+        : windowDuration <= 3 * 365 * 86_400_000
+          ? "week"
+          : "month";
   const seriesStepMs = seriesGrain === "hour" ? 3_600_000 : 86_400_000;
-  const seriesPointCount = Math.max(
-    1,
-    Math.ceil((window.end.getTime() - window.start.getTime()) / seriesStepMs),
-  );
+  const seriesPointCount = Math.max(1, Math.ceil(windowDuration / seriesStepMs));
   const [activityRows, sourceCountRows, periodSourceCountRows, cardRows] = await Promise.all([
     db
       .select({ value: count() })
@@ -263,18 +282,30 @@ export async function AnalyticsOverview({
               )
             : Promise.resolve([]),
         ]);
-        const seriesValues = new Map(
-          series.map((row) => [rowBucketKey(row.time_bucket, seriesGrain), Number(row.value ?? 0)]),
-        );
-        const points = Array.from({ length: seriesPointCount }, (_, index) => {
-          const instant = new Date(window.start.getTime() + index * seriesStepMs);
-          const key = wallClockKey(instant, timezone, seriesGrain);
-          return {
-            date: instant.toISOString(),
-            value: seriesValues.get(key) ?? 0,
-            estimated: false,
-          };
-        });
+        const points =
+          seriesGrain === "hour" || seriesGrain === "day"
+            ? (() => {
+                const seriesValues = new Map(
+                  series.map((row) => [
+                    rowBucketKey(row.time_bucket, seriesGrain),
+                    Number(row.value ?? 0),
+                  ]),
+                );
+                return Array.from({ length: seriesPointCount }, (_, index) => {
+                  const instant = new Date(window.start.getTime() + index * seriesStepMs);
+                  const key = wallClockKey(instant, timezone, seriesGrain);
+                  return {
+                    date: instant.toISOString(),
+                    value: seriesValues.get(key) ?? 0,
+                    estimated: false,
+                  };
+                });
+              })()
+            : series.map((row) => ({
+                date: new Date(String(row.time_bucket)).toISOString(),
+                value: Number(row.value ?? 0),
+                estimated: false,
+              }));
         return {
           id: metric.id,
           versionId: metric.versionId,

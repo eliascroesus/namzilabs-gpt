@@ -10,6 +10,7 @@ import { errorResponse, requestIdFrom } from "@/lib/errors";
 import { randomSecret } from "@/connectors/shared";
 import { requireTenantContext } from "@/server/auth/tenant";
 import { connectorContext } from "@/server/connections/service";
+import { provisionConnectedAccount } from "@/server/connections/provision";
 import { storeCredential } from "@/server/credentials/service";
 
 const createSchema = z.object({
@@ -105,6 +106,11 @@ export async function POST(request: Request) {
               eq(connections.id, connection.id),
             ),
           );
+        await provisionConnectedAccount(
+          db,
+          connection,
+          `${env().APP_URL}/api/webhooks/${connection.id}`,
+        );
       }
     }
     if (input.provider === "webhook") {

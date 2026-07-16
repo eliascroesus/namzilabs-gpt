@@ -9,6 +9,7 @@ import { providerFetch } from "@/connectors/http";
 import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { connectorContext, getConnectionForOrganization } from "@/server/connections/service";
+import { provisionConnectedAccount } from "@/server/connections/provision";
 import { storeCredential } from "@/server/credentials/service";
 import type { OAuthState } from "@/server/oauth/state";
 
@@ -19,11 +20,14 @@ const tokenSchema = z.object({
   token_type: z.string().optional(),
 });
 
-type OAuthProvider = Extract<ProviderId, "google-sheets" | "calendly" | "close">;
+type OAuthProvider = Extract<
+  ProviderId,
+  "google-sheets" | "google-calendar" | "calendly" | "cal-com" | "close"
+>;
 
 function tokenRequest(provider: OAuthProvider, code: string, state: OAuthState) {
   const config = env();
-  if (provider === "google-sheets") {
+  if (provider === "google-sheets" || provider === "google-calendar") {
     return {
       url: "https://oauth2.googleapis.com/token",
       body: new URLSearchParams({
@@ -31,7 +35,10 @@ function tokenRequest(provider: OAuthProvider, code: string, state: OAuthState) 
         client_secret: config.GOOGLE_CLIENT_SECRET ?? "",
         code,
         code_verifier: state.verifier,
-        redirect_uri: config.GOOGLE_REDIRECT_URI,
+        redirect_uri:
+          provider === "google-sheets"
+            ? config.GOOGLE_REDIRECT_URI
+            : `${config.APP_URL}/api/integrations/google-calendar/callback`,
         grant_type: "authorization_code",
       }),
     };
@@ -45,6 +52,18 @@ function tokenRequest(provider: OAuthProvider, code: string, state: OAuthState) 
         code,
         code_verifier: state.verifier,
         redirect_uri: `${config.APP_URL}/api/integrations/calendly/callback`,
+        grant_type: "authorization_code",
+      }),
+    };
+  }
+  if (provider === "cal-com") {
+    return {
+      url: "https://api.cal.com/v2/auth/oauth2/token",
+      body: new URLSearchParams({
+        client_id: config.CALCOM_CLIENT_ID ?? "",
+        client_secret: config.CALCOM_CLIENT_SECRET ?? "",
+        code,
+        redirect_uri: `${config.APP_URL}/api/integrations/cal-com/callback`,
         grant_type: "authorization_code",
       }),
     };
@@ -120,5 +139,6 @@ export async function completeOAuth(
       updatedAt: new Date(),
     })
     .where(eq(connections.id, connection.id));
+  await provisionConnectedAccount(db, connection, `${env().APP_URL}/api/webhooks/${connection.id}`);
   return connection.id;
 }

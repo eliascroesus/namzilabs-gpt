@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 
 import { getConnector } from "@/connectors/registry";
+import type { BackfillPage } from "@/connectors/types";
 import type { Database } from "@/db/client";
 import {
   activityFacts,
@@ -13,6 +14,7 @@ import {
 } from "@/db/schema";
 import { AppError } from "@/lib/errors";
 import { asProviderId, connectorContext } from "@/server/connections/service";
+import { storeCredential } from "@/server/credentials/service";
 import { recordMeasurementSafely } from "@/server/operations/service";
 
 export function shouldRenewSubscription(
@@ -63,6 +65,22 @@ export async function reconcilePage(
   if (input.resourceId && !resource) {
     throw new AppError("connection_resource_not_found", "Tracked source not found.", 404);
   }
+  const cursorResourceType = resource ? `resource:${resource.id}` : "default";
+  const [storedCursor] =
+    !input.cursor && connection.provider === "google-calendar"
+      ? await db
+          .select({ cursor: syncCursors.cursor })
+          .from(syncCursors)
+          .where(
+            and(
+              eq(syncCursors.organizationId, connection.organizationId),
+              eq(syncCursors.connectionId, connection.id),
+              eq(syncCursors.resourceType, cursorResourceType),
+            ),
+          )
+          .limit(1)
+      : [];
+  const effectiveCursor = input.cursor ?? storedCursor?.cursor ?? undefined;
   const [existingRun] = input.runId
     ? await db
         .select()
@@ -83,9 +101,9 @@ export async function reconcilePage(
         .values({
           organizationId: connection.organizationId,
           connectionId: connection.id,
-          kind: input.cursor ? "incremental" : "reconciliation",
+          kind: effectiveCursor ? "incremental" : "reconciliation",
           status: "running",
-          cursorStart: input.cursor,
+          cursorStart: effectiveCursor,
           startedAt: new Date(),
         })
         .returning();
@@ -116,9 +134,29 @@ export async function reconcilePage(
           configuration: { ...baseContext.configuration, ...resource.configuration },
         }
       : baseContext;
-    const page = input.cursor
-      ? await connector.continueBackfill(context, input.cursor)
-      : await connector.startBackfill(context);
+    let page: BackfillPage;
+    try {
+      page = effectiveCursor
+        ? await connector.continueBackfill(context, effectiveCursor)
+        : await connector.startBackfill(context);
+    } catch (error) {
+      const expiredGoogleCursor =
+        connection.provider === "google-calendar" &&
+        effectiveCursor?.startsWith("sync:") &&
+        error instanceof AppError &&
+        error.details?.providerStatus === 410;
+      if (!expiredGoogleCursor) throw error;
+      await db
+        .delete(syncCursors)
+        .where(
+          and(
+            eq(syncCursors.organizationId, connection.organizationId),
+            eq(syncCursors.connectionId, connection.id),
+            eq(syncCursors.resourceType, cursorResourceType),
+          ),
+        );
+      page = await connector.startBackfill(context);
+    }
     let written = 0;
     let deleted = 0;
     await db.transaction(async (tx) => {
@@ -254,14 +292,14 @@ export async function reconcilePage(
         .values({
           organizationId: connection.organizationId,
           connectionId: connection.id,
-          resourceType: resource ? `resource:${resource.id}` : "default",
-          cursor: page.nextCursor,
+          resourceType: cursorResourceType,
+          cursor: page.nextCursor ?? page.checkpoint,
           highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
         })
         .onConflictDoUpdate({
           target: [syncCursors.organizationId, syncCursors.connectionId, syncCursors.resourceType],
           set: {
-            cursor: page.nextCursor,
+            cursor: page.nextCursor ?? page.checkpoint,
             highWatermark: page.highWatermark ? new Date(page.highWatermark) : new Date(),
             updatedAt: new Date(),
           },
@@ -400,6 +438,14 @@ export async function renewExpiringSubscription(
     expiresAt: subscription.expiresAt?.toISOString(),
     metadata: subscription.metadata,
   });
+  for (const [type, value] of Object.entries(renewed.credentialUpdates ?? {})) {
+    await storeCredential(db, {
+      organizationId: connection.organizationId,
+      connectionId: connection.id,
+      type,
+      value,
+    });
+  }
   await db
     .update(webhookSubscriptions)
     .set({

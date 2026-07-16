@@ -26,6 +26,53 @@ const campaignsSchema = z
   .passthrough();
 const webhookSchema = z.object({ id: z.number() }).passthrough();
 
+type BrevoWebhookDefinition = {
+  type: "transactional" | "marketing";
+  channel: "email" | "sms";
+  events: string[];
+};
+
+const webhookDefinitions: BrevoWebhookDefinition[] = [
+  {
+    type: "transactional",
+    channel: "email",
+    events: [
+      "sent",
+      "delivered",
+      "opened",
+      "click",
+      "hardBounce",
+      "softBounce",
+      "blocked",
+      "spam",
+      "invalid",
+      "deferred",
+      "unsubscribed",
+    ],
+  },
+  {
+    type: "transactional",
+    channel: "sms",
+    events: ["sent", "delivered", "hardBounce", "softBounce", "blocked", "unsubscribed"],
+  },
+  {
+    type: "marketing",
+    channel: "email",
+    events: [
+      "delivered",
+      "opened",
+      "click",
+      "hardBounce",
+      "softBounce",
+      "spam",
+      "unsubscribed",
+      "listAddition",
+      "contactUpdated",
+      "contactDeleted",
+    ],
+  },
+];
+
 function headers(context: Parameters<Connector["validateCredentials"]>[0]): HeadersInit {
   return { "api-key": credential(context, "apiKey"), Accept: "application/json" };
 }
@@ -39,7 +86,7 @@ export const brevoConnector: Connector = {
     authType: "api-key",
     apiVersion: "v3",
     mappingVersion: 1,
-    resources: ["account", "contact", "campaign", "message"],
+    resources: ["contact", "message"],
     events: [
       "email.sent",
       "email.delivered",
@@ -111,30 +158,44 @@ export const brevoConnector: Connector = {
 
   async createSubscription(context) {
     const secret = context.credentials.webhookSecret ?? randomSecret();
-    const result = await providerFetch(
-      "https://api.brevo.com/v3/webhooks",
-      {
-        method: "POST",
-        headers: { ...headers(context), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: `Namzi ${context.connectionId}`,
-          url: context.callbackUrl,
-          type: "transactional",
-          events: [
-            "sent",
-            "delivered",
-            "opened",
-            "click",
-            "hardBounce",
-            "softBounce",
-            "unsubscribed",
-          ],
-          auth: { type: "bearer", token: secret },
-        }),
-      },
-      webhookSchema,
-    );
-    return { externalId: String(result.id) };
+    const createdIds: string[] = [];
+    try {
+      for (const definition of webhookDefinitions) {
+        const result = await providerFetch(
+          "https://api.brevo.com/v3/webhooks",
+          {
+            method: "POST",
+            headers: { ...headers(context), "Content-Type": "application/json" },
+            body: JSON.stringify({
+              description: `Namzi ${context.connectionId} ${definition.channel} ${definition.type}`,
+              url: context.callbackUrl,
+              type: definition.type,
+              channel: definition.channel,
+              events: definition.events,
+              auth: { type: "bearer", token: secret },
+            }),
+          },
+          webhookSchema,
+          1,
+        );
+        createdIds.push(String(result.id));
+      }
+    } catch (error) {
+      await Promise.allSettled(
+        createdIds.map((id) =>
+          fetch(`https://api.brevo.com/v3/webhooks/${id}`, {
+            method: "DELETE",
+            headers: headers(context),
+          }),
+        ),
+      );
+      throw error;
+    }
+    return {
+      externalId: createdIds[0],
+      metadata: { externalIds: createdIds },
+      credentialUpdates: { webhookSecret: secret },
+    };
   },
 
   async renewSubscription(_context, subscription) {
@@ -142,11 +203,21 @@ export const brevoConnector: Connector = {
   },
 
   async deleteSubscription(context, subscription) {
-    if (subscription.externalId)
-      await fetch(`https://api.brevo.com/v3/webhooks/${subscription.externalId}`, {
-        method: "DELETE",
-        headers: headers(context),
-      });
+    const stored = Array.isArray(subscription.metadata?.externalIds)
+      ? subscription.metadata.externalIds.map(String)
+      : [];
+    const ids = [...new Set([subscription.externalId, ...stored].filter(Boolean) as string[])];
+    await Promise.all(
+      ids.map(async (id) => {
+        const response = await fetch(`https://api.brevo.com/v3/webhooks/${id}`, {
+          method: "DELETE",
+          headers: headers(context),
+        });
+        if (!response.ok && response.status !== 404) {
+          throw new Error(`Brevo webhook deletion returned HTTP ${response.status}.`);
+        }
+      }),
+    );
   },
 
   async verifyWebhook(context, webhook) {
@@ -160,6 +231,8 @@ export const brevoConnector: Connector = {
   async parseWebhook(_context, webhook) {
     const payload = webhookJson(webhook);
     const sourceType = String(payload.event ?? payload.msg_status ?? "unknown");
+    const channel = String(payload.channel ?? payload.type ?? "email").toLowerCase();
+    const sms = channel.includes("sms");
     const mapping: Record<string, string> = {
       sent: "email.sent",
       delivered: "email.delivered",
@@ -175,12 +248,14 @@ export const brevoConnector: Connector = {
       Number(payload.ts_event ?? payload.ts ?? Date.now() / 1_000) * 1_000,
     ).toISOString();
     const id = `${payload["message-id"] ?? payload.messageId ?? payload.email ?? "event"}:${sourceType}:${payload.ts_event ?? payload.ts ?? ""}`;
+    const eventType = mapping[sourceType] ?? `brevo.${sourceType}`;
     return [
       {
         providerEventId: id,
-        eventType: mapping[sourceType] ?? `brevo.${sourceType}`,
+        eventType:
+          sms && eventType.startsWith("email.") ? eventType.replace("email.", "sms.") : eventType,
         eventAt: occurredAt,
-        payload,
+        payload: { ...payload, namzi_channel: sms ? "sms" : "email" },
       },
     ];
   },

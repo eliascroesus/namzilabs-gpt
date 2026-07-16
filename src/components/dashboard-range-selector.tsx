@@ -10,6 +10,7 @@ const ranges: { value: DatePreset; label: string }[] = [
   { value: "yesterday", label: "Yesterday" },
   { value: "last_7_days", label: "Last 7 days" },
   { value: "last_30_days", label: "Last 30 days" },
+  { value: "all_time", label: "All time" },
 ];
 
 export function DashboardRangeSelector({ range }: { range: DatePreset }) {

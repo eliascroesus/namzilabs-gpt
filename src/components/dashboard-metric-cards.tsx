@@ -66,7 +66,9 @@ function formatPointDate(value: string, range: DatePreset, timezone: string): st
     undefined,
     range === "today" || range === "yesterday"
       ? { timeZone: timezone, hour: "numeric" }
-      : { timeZone: timezone, month: "short", day: "numeric" },
+      : range === "all_time"
+        ? { timeZone: timezone, month: "short", year: "numeric" }
+        : { timeZone: timezone, month: "short", day: "numeric" },
   ).format(date);
 }
 
@@ -76,6 +78,7 @@ function rangeChartLabel(range: DatePreset): string {
   if (range === "last_7_days") return "Last 7 days";
   if (range === "last_30_days") return "Last 30 days";
   if (range === "this_month") return "This month";
+  if (range === "all_time") return "All time";
   return "This quarter";
 }
 
@@ -109,7 +112,32 @@ function TrendBars({
   const maximum = Math.max(1, ...points.map((point) => point.value));
   const activePoint = hovered === null ? null : points[hovered];
   const activeLeft =
+    hovered === null || !points.length
+      ? 50
+      : points.length === 1
+        ? 50
+        : (hovered / (points.length - 1)) * 100;
+  const activeBarLeft =
     hovered === null || !points.length ? 50 : ((hovered + 0.5) / points.length) * 100;
+  const activeBarHeight = activePoint
+    ? Math.max(activePoint.value === 0 ? 2 : 8, (activePoint.value / maximum) * 100)
+    : 0;
+
+  function selectNearest(element: HTMLElement, clientX: number) {
+    if (!points.length) return;
+    const bounds = element.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - bounds.left) / Math.max(1, bounds.width)));
+    setHovered(Math.round(ratio * (points.length - 1)));
+  }
+
+  function moveWithKeyboard(direction: -1 | 1) {
+    setHovered((current) =>
+      Math.max(
+        0,
+        Math.min(points.length - 1, (current ?? (direction > 0 ? -1 : points.length)) + direction),
+      ),
+    );
+  }
 
   if (!large) {
     const coordinates = points.map((point, index) => ({
@@ -122,6 +150,7 @@ function TrendBars({
     const areaPath = coordinates.length
       ? `${linePath} L${coordinates.at(-1)!.x},40 L${coordinates[0]!.x},40 Z`
       : "";
+    const activeCoordinate = hovered === null ? null : coordinates[hovered];
     return (
       <div
         className="metric-card-chart-mini metric-card-sparkline"
@@ -143,27 +172,57 @@ function TrendBars({
             strokeWidth="1.8"
             vectorEffect="non-scaling-stroke"
           />
+          {activeCoordinate ? (
+            <>
+              <line
+                x1={activeCoordinate.x}
+                x2={activeCoordinate.x}
+                y1="2"
+                y2="39"
+                className="metric-card-active-guide"
+                vectorEffect="non-scaling-stroke"
+              />
+              <circle
+                cx={activeCoordinate.x}
+                cy={activeCoordinate.y}
+                r="2.5"
+                fill={metric.color}
+                className="metric-card-active-point"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          ) : null}
         </svg>
-        <div className="metric-card-sparkline-points">
-          {coordinates.map((point, index) => (
-            <button
-              type="button"
-              key={`${metric.points[index]?.date}-${index}`}
-              style={{ left: `${point.x}%`, top: `${(point.y / 40) * 100}%` }}
-              onMouseEnter={() => setHovered(index)}
-              onMouseLeave={() => setHovered(null)}
-              onFocus={() => setHovered(index)}
-              onBlur={() => setHovered(null)}
-              onClick={() => setHovered(index)}
-              aria-label={`${formatPointDate(metric.points[index]!.date, range, timezone)}: ${formatMetricValue(metric.points[index]!.value, metric.percentage)}`}
-            />
-          ))}
-        </div>
+        <div
+          className="metric-card-chart-hit-area"
+          role="slider"
+          tabIndex={0}
+          aria-label={`${metric.name} timeline. Move across the chart or use the arrow keys.`}
+          aria-valuemin={0}
+          aria-valuemax={Math.max(0, points.length - 1)}
+          aria-valuenow={hovered ?? 0}
+          onPointerMove={(event) => selectNearest(event.currentTarget, event.clientX)}
+          onPointerLeave={() => setHovered(null)}
+          onFocus={() => setHovered((current) => current ?? points.length - 1)}
+          onBlur={() => setHovered(null)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              moveWithKeyboard(-1);
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              moveWithKeyboard(1);
+            }
+          }}
+        />
         {activePoint ? (
           <div
             className="metric-card-chart-tooltip"
             role="status"
-            style={{ left: `clamp(52px, ${activeLeft}%, calc(100% - 52px))` }}
+            style={{
+              left: `clamp(54px, ${activeLeft}%, calc(100% - 54px))`,
+              top: activeCoordinate ? `${(activeCoordinate.y / 40) * 100}%` : undefined,
+            }}
           >
             <span>{formatPointDate(activePoint.date, range, timezone)}</span>
             <strong>{formatMetricValue(activePoint.value, metric.percentage)}</strong>
@@ -174,43 +233,62 @@ function TrendBars({
   }
 
   return (
-    <div className={large ? "metric-card-chart-large" : "metric-card-chart-mini"}>
+    <div className="metric-card-chart-large">
       <div className="metric-card-chart-bars" aria-label={`${metric.name} timeline`}>
         {points.map((point, index) => (
-          <button
-            type="button"
+          <span
             key={`${point.date}-${index}`}
-            className={`metric-card-chart-bar ${point.estimated ? "estimated" : ""}`}
+            className={`metric-card-chart-bar ${point.estimated ? "estimated" : ""} ${hovered === index ? "active" : ""}`}
             style={{
               height: `${Math.max(point.value === 0 ? 2 : 8, (point.value / maximum) * 100)}%`,
               backgroundColor: metric.color,
             }}
-            onMouseEnter={() => setHovered(index)}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={() => setHovered(index)}
-            onBlur={() => setHovered(null)}
-            onClick={() => setHovered(index)}
-            aria-label={`${formatPointDate(point.date, range, timezone)}: ${formatMetricValue(point.value, metric.percentage)}`}
           />
         ))}
       </div>
+      {hovered !== null ? (
+        <span className="metric-card-large-guide" style={{ left: `${activeBarLeft}%` }} />
+      ) : null}
+      <div
+        className="metric-card-chart-hit-area"
+        role="slider"
+        tabIndex={0}
+        aria-label={`${metric.name} timeline. Move across the chart or use the arrow keys.`}
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, points.length - 1)}
+        aria-valuenow={hovered ?? 0}
+        onPointerMove={(event) => selectNearest(event.currentTarget, event.clientX)}
+        onPointerLeave={() => setHovered(null)}
+        onFocus={() => setHovered((current) => current ?? points.length - 1)}
+        onBlur={() => setHovered(null)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            moveWithKeyboard(-1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            moveWithKeyboard(1);
+          }
+        }}
+      />
       {activePoint ? (
         <div
           className="metric-card-chart-tooltip"
           role="status"
-          style={{ left: `clamp(52px, ${activeLeft}%, calc(100% - 52px))` }}
+          style={{
+            left: `clamp(58px, ${activeBarLeft}%, calc(100% - 58px))`,
+            top: `${8 + (1 - activeBarHeight / 100) * 78}%`,
+          }}
         >
           <span>{formatPointDate(activePoint.date, range, timezone)}</span>
           <strong>{formatMetricValue(activePoint.value, metric.percentage)}</strong>
         </div>
       ) : null}
-      {large ? (
-        <div className="metric-card-chart-axis" aria-hidden="true">
-          <span>{points[0] ? formatPointDate(points[0].date, range, timezone) : ""}</span>
-          <span>{rangeChartLabel(range)}</span>
-          <span>{points.at(-1) ? formatPointDate(points.at(-1)!.date, range, timezone) : ""}</span>
-        </div>
-      ) : null}
+      <div className="metric-card-chart-axis" aria-hidden="true">
+        <span>{points[0] ? formatPointDate(points[0].date, range, timezone) : ""}</span>
+        <span>{rangeChartLabel(range)}</span>
+        <span>{points.at(-1) ? formatPointDate(points.at(-1)!.date, range, timezone) : ""}</span>
+      </div>
     </div>
   );
 }

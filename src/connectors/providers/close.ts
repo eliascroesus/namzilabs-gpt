@@ -23,8 +23,7 @@ const meSchema = z
 const listSchema = z
   .object({
     data: z.array(jsonObjectSchema).default([]),
-    has_more: z.boolean().optional(),
-    cursor: z.string().optional(),
+    cursor_next: z.string().nullable().optional(),
   })
   .passthrough();
 const subscriptionSchema = z
@@ -44,7 +43,7 @@ export const closeConnector: Connector = {
     authType: "oauth2",
     apiVersion: "v1",
     mappingVersion: 1,
-    resources: ["lead", "contact", "opportunity", "activity", "event"],
+    resources: ["event"],
     events: ["lead.changed", "call.completed", "sms.sent", "email.sent", "opportunity.changed"],
     capabilities: ["oauth", "webhooks", "polling", "backfill", "sample"],
   },
@@ -100,13 +99,13 @@ export const closeConnector: Connector = {
   async startBackfill(context, cursor) {
     const url = new URL("https://api.close.com/api/v1/event/");
     url.searchParams.set("_limit", "100");
-    if (cursor) url.searchParams.set("cursor", cursor);
+    if (cursor) url.searchParams.set("_cursor", cursor);
     const result = await providerFetch(
       url.toString(),
       { headers: bearerHeaders(token(context)) },
       listSchema,
     );
-    return { records: result.data, nextCursor: result.has_more ? (result.cursor ?? null) : null };
+    return { records: result.data, nextCursor: result.cursor_next ?? null };
   },
 
   async continueBackfill(context, cursor) {
@@ -121,12 +120,34 @@ export const closeConnector: Connector = {
         headers: { ...bearerHeaders(token(context)), "Content-Type": "application/json" },
         body: JSON.stringify({
           url: context.callbackUrl,
-          events: [{ object_type: "*", action: "*" }],
+          events: [
+            { object_type: "lead", action: "created" },
+            { object_type: "lead", action: "updated" },
+            { object_type: "lead", action: "deleted" },
+            { object_type: "contact", action: "created" },
+            { object_type: "contact", action: "updated" },
+            { object_type: "contact", action: "deleted" },
+            { object_type: "opportunity", action: "created" },
+            { object_type: "opportunity", action: "updated" },
+            { object_type: "opportunity", action: "deleted" },
+            { object_type: "activity.call", action: "created" },
+            { object_type: "activity.call", action: "updated" },
+            { object_type: "activity.sms", action: "created" },
+            { object_type: "activity.sms", action: "updated" },
+            { object_type: "activity.email", action: "created" },
+            { object_type: "activity.email", action: "updated" },
+          ],
         }),
       },
       subscriptionSchema,
+      1,
     );
-    return { externalId: result.id, metadata: { signatureKey: result.signature_key } };
+    return {
+      externalId: result.id,
+      credentialUpdates: result.signature_key
+        ? { webhookSigningKey: result.signature_key }
+        : undefined,
+    };
   },
 
   async renewSubscription(_context, subscription) {
@@ -172,7 +193,7 @@ export const closeConnector: Connector = {
   },
 
   async normalizeRecord(_context, record, eventType) {
-    return defaultNormalizedRecord(record, String(record.object_type ?? "event"), eventType);
+    return defaultNormalizedRecord(record, "event", eventType);
   },
 
   async healthCheck(context) {

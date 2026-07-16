@@ -30,6 +30,16 @@ describe("timezone and daylight saving boundaries", () => {
     expect(yesterday.start.toISOString()).toBe("2026-07-10T04:00:00.000Z");
     expect(yesterday.end.toISOString()).toBe("2026-07-11T04:00:00.000Z");
   });
+
+  it("provides a stable fallback for an empty all-time workspace", () => {
+    const range = dateRangeForPreset(
+      "all_time",
+      "Europe/Stockholm",
+      new Date("2026-07-16T12:00:00Z"),
+    );
+    expect(range.start.toISOString()).toBe("1999-12-31T23:00:00.000Z");
+    expect(range.end.toISOString()).toBe("2026-07-16T22:00:00.000Z");
+  });
 });
 
 describe("documented goal status", () => {

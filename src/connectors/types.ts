@@ -7,6 +7,11 @@ export const providerIds = [
   "close",
   "instantly",
   "brevo",
+  "cal-com",
+  "google-calendar",
+  "stripe",
+  "whop",
+  "propal",
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
 
@@ -49,6 +54,7 @@ export type DiscoveredResource = {
 export type BackfillPage = {
   records: Record<string, unknown>[];
   nextCursor: string | null;
+  checkpoint?: string;
   highWatermark?: string;
 };
 
@@ -57,6 +63,7 @@ export type SubscriptionResult = {
   resourceId?: string;
   expiresAt?: string;
   metadata?: Record<string, unknown>;
+  credentialUpdates?: Record<string, string>;
 };
 
 export type IncomingWebhook = {

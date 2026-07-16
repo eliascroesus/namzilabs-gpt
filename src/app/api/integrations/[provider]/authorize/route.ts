@@ -13,7 +13,11 @@ import { createOAuthState, pkceChallenge, sealOAuthState } from "@/server/oauth/
 export async function GET(request: Request, { params }: { params: Promise<{ provider: string }> }) {
   const tenant = await requireTenantContext("editor");
   const provider = (await params).provider as ProviderId;
-  if (!(["google-sheets", "calendly", "close"] as string[]).includes(provider)) {
+  if (
+    !(["google-sheets", "google-calendar", "calendly", "cal-com", "close"] as string[]).includes(
+      provider,
+    )
+  ) {
     throw new AppError("oauth_not_supported", "This connector does not use OAuth.", 400);
   }
   const connectionId = new URL(request.url).searchParams.get("connectionId");
@@ -21,7 +25,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prov
   const db = getDb();
   const connection = await getConnectionForOrganization(db, tenant.organizationId, connectionId);
   const state = createOAuthState(
-    provider as "google-sheets" | "calendly" | "close",
+    provider as "google-sheets" | "google-calendar" | "calendly" | "cal-com" | "close",
     tenant.organizationId,
     connectionId,
   );

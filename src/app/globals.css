@@ -5566,3 +5566,160 @@ body {
 .dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
   order: 2;
 }
+
+/* Chart interaction is intentionally one continuous hit region. Pointer movement
+   snaps to the nearest bucket, so users do not have to hunt for a thin line. */
+.metric-card-chart-hit-area {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  cursor: crosshair;
+  border-radius: inherit;
+  outline: none;
+  touch-action: pan-y;
+}
+
+.metric-card-chart-hit-area:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 72%, transparent);
+}
+
+.metric-card-active-guide {
+  stroke: rgb(255 255 255 / 0.34);
+  stroke-dasharray: 2 2;
+  stroke-width: 1;
+}
+
+.metric-card-active-point {
+  stroke: #fff;
+  stroke-width: 1.3;
+  paint-order: stroke;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.8));
+}
+
+.metric-card-large-guide {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  bottom: 25px;
+  width: 1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.42) 0 3px,
+    transparent 3px 7px
+  );
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.metric-card-chart-bar.active {
+  opacity: 1;
+  filter: brightness(1.16) saturate(1.08);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.3);
+}
+
+.metric-card-chart-tooltip {
+  z-index: 6;
+  min-height: 32px;
+  border-color: #4a4b52;
+  border-radius: 7px;
+  background: #1a1b20;
+  padding: 6px 9px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.48);
+  font-size: 0.63rem;
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.metric-card-chart-tooltip strong {
+  font-size: 0.72rem;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large {
+  min-height: 388px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-body,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-body.has-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(230px, 1fr);
+  gap: 9px;
+  padding: 20px 20px 16px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-labels,
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-copy,
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
+  order: initial;
+  grid-column: 1;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-labels {
+  grid-row: 1;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-card-copy {
+  display: grid;
+  grid-row: 2;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 14px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-value {
+  margin-top: 0;
+  font-size: 2.8rem;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .dashboard-metric-source {
+  margin: 0 0 4px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
+  min-height: 230px;
+  grid-row: 3;
+  margin-top: 2px;
+  border-color: #262831;
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgb(151 154 167 / 0.1) 25%
+    ),
+    #0d0e12;
+  padding: 16px 0 25px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-bars {
+  inset: 16px 0 25px;
+  gap: clamp(3px, 0.55vw, 9px);
+  padding: 0 20px;
+}
+
+.dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-hit-area {
+  inset: 16px 0 25px;
+}
+
+.app-theme-light .metric-card-chart-tooltip {
+  border-color: #cbc8c1;
+  color: #56575b;
+  background: #fff;
+  box-shadow: 0 9px 24px rgb(45 46 50 / 0.18);
+}
+
+.app-theme-light .metric-card-chart-tooltip strong {
+  color: #202124;
+}
+
+.app-theme-light .dashboard-summary-page .dashboard-metric-card-large .metric-card-chart-large {
+  border-color: #dedbd4;
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgb(75 76 82 / 0.08) 25%
+    ),
+    #fbfaf7;
+}

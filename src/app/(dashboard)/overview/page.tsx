@@ -3,7 +3,13 @@ import type { DatePreset } from "@/server/metrics/time";
 
 export const metadata = { title: "Overview" };
 export const dynamic = "force-dynamic";
-const supportedRanges = new Set<DatePreset>(["today", "yesterday", "last_7_days", "last_30_days"]);
+const supportedRanges = new Set<DatePreset>([
+  "today",
+  "yesterday",
+  "last_7_days",
+  "last_30_days",
+  "all_time",
+]);
 
 export default async function OverviewPage({
   searchParams,

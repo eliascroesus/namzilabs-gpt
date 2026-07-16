@@ -26,14 +26,15 @@ Production deliberately fails closed if database, encryption, the prototype pass
 - OAuth/API credentials are AES-256-GCM encrypted and are never returned after initial webhook setup.
 - Every tenant query is organization-scoped and the migration also applies PostgreSQL RLS policies.
 
-## Connector implementation order
+## Connectors
 
-1. Generic JSON webhook
-2. Google Sheets with Drive change notifications
-3. Calendly OAuth/webhooks
-4. Close OAuth/webhooks and event-log backfill
-5. Instantly API v2
-6. Brevo API v3
+The registry includes generic JSON webhooks, Google Sheets, Google Calendar, Calendly, Cal.com,
+Close CRM, Instantly, Brevo (Sendinblue), Stripe, Whop and Propal. Each provider uses signed
+webhooks where its public API supports them plus scheduled reconciliation/backfill. Propal is
+polling-only because its current public REST API does not publish a webhook contract.
+
+Use the [integration setup runbook](docs/integrations.md) for provider permissions, OAuth redirect
+URIs, Vercel variables and live verification steps.
 
 No provider fixtures are shown in production. Live account credentials are required for provider smoke tests and the three-record preview.
 
